@@ -4,6 +4,13 @@
   --orange: #dd6b20;
 }
 
+/* Defensive fallback: app.js toggles .hidden/.flex to drive real logic
+   (empty state, modal visibility), not just cosmetics from the Tailwind
+   CDN utilities. Redefine them here so that logic still works if the
+   Tailwind CDN script fails to load (offline use, blocked host, etc). */
+.hidden { display: none !important; }
+#job-modal.flex { display: flex !important; align-items: center; justify-content: center; }
+
 .bg-navy { background-color: var(--navy); }
 .text-navy { color: var(--navy); }
 

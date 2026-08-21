@@ -64,6 +64,11 @@ def scrape_and_score(min_results=6, progress_cb=None):
     (inserted_count, run_log)."""
     jobs, run_log = scraper.run_daily_scrape(min_results=min_results, progress_cb=progress_cb)
     inserted = _store_jobs(jobs)
+    if "Seed/Demo" not in run_log["sources"]:
+        # Real sources delivered enough on their own this run - clear out
+        # any leftover demo postings from earlier (e.g. the initial boot
+        # seed) so they stop outranking real offers.
+        db.delete_jobs_by_source("Seed/Demo")
     return inserted, run_log
 
 

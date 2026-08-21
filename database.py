@@ -178,6 +178,19 @@ def update_job(job_id: str, **fields):
         conn.execute(f"UPDATE jobs SET {set_clause} WHERE id = ?", params)
 
 
+def delete_jobs_by_source(source: str, exclude_applied: bool = True):
+    """Removes demo/seed postings once real sources start delivering
+    enough results, so they stop competing with real offers. Never
+    deletes a job the user has already applied to / tracked, even if it
+    was a demo posting."""
+    query = "DELETE FROM jobs WHERE source = ?"
+    params = [source]
+    if exclude_applied:
+        query += " AND status = 'new'"
+    with get_conn() as conn:
+        conn.execute(query, params)
+
+
 def get_daily_stats(day=None):
     day = day or date.today().isoformat()
     with get_conn() as conn:

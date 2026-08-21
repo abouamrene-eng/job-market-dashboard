@@ -26,19 +26,40 @@ telephone (l'email est deja pre-rempli avec `abouamrene@gmail.com`).
 
 ## A savoir sur le scraping
 
-LinkedIn, Indeed, Glassdoor et Welcome to the Jungle bloquent activement le
-scraping automatise et leurs CGU le restreignent. `scraper.py` essaie tout
-de meme des requetes best-effort (BeautifulSoup4) sur Indeed, Glassdoor et
-Consulting.fr, avec des scrapers LinkedIn/WTTJ laisses en stub (a completer
-avec une session Selenium authentifiee si besoin). Quand les sources en
-direct ne remontent pas assez de resultats - le cas le plus frequent hors
-d'un environnement grand public - le dashboard complete automatiquement le
-flux avec des offres de demonstration realistes (`generate_seed_jobs`) pour
-que le scoring, la generation de CV/LM et le tracking restent utilisables.
+**Source principale : l'API France Travail.** C'est la source fiable et a
+fort volume - une API officielle, gratuite et conforme aux CGU (contrairement
+au scraping), qui agrege de vraies offres du marche francais. Pour l'activer :
 
-Pour une utilisation en production fiable, remplacez ces scrapers par des
-API officielles (API France Travail / Pole Emploi, LinkedIn Talent
-Solutions, etc.).
+1. Creez un compte gratuit sur https://francetravail.io/inscription
+2. Dans "Mes applications" -> "Creer une application", cochez l'API
+   **"Offres d'emploi v2"**
+3. Recuperez le `client_id` et le `client_secret` generes, et definissez-les
+   comme variables d'environnement :
+   ```bash
+   export FRANCE_TRAVAIL_CLIENT_ID="..."
+   export FRANCE_TRAVAIL_CLIENT_SECRET="..."
+   ```
+   Sur Render : Dashboard -> votre service -> Environment -> Add Environment
+   Variable (jamais dans le code ni commite dans git).
+
+Sans ces identifiants, cette source est simplement ignoree (logue une fois,
+pas une erreur) et le dashboard retombe sur les sources secondaires.
+
+**Sources secondaires : scraping best-effort.** LinkedIn, Indeed, Glassdoor
+et Welcome to la Jungle bloquent activement le scraping automatise et leurs
+CGU le restreignent. `scraper.py` essaie tout de meme des requetes
+best-effort (BeautifulSoup4, avec retry/backoff) sur Indeed, Glassdoor,
+Consulting.fr, RegionsJob, StepStone, Talent.com et Jooble, avec des
+scrapers LinkedIn/WTTJ laisses en stub (a completer avec une session
+Selenium authentifiee si besoin). Il est normal que la plupart de ces
+sources secondaires renvoient 0 resultat la plupart du temps.
+
+**Repli demo.** Quand ni France Travail ni le scraping secondaire ne
+remontent assez de resultats, le dashboard complete le flux avec des offres
+de demonstration realistes (`generate_seed_jobs`) dont le lien "Voir
+l'offre" pointe vers une recherche Google reelle - pour que le scoring, la
+generation de CV/LM et le tracking restent utilisables meme sans aucune
+source live configuree.
 
 ## Fonctionnalites
 

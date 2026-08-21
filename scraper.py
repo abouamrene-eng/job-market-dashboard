@@ -7,21 +7,28 @@ timeout, rate limit) never takes the whole daily refresh down with it -
 `run_daily_scrape()` moves on to the next source and keeps whatever the
 others found.
 
-IMPORTANT: LinkedIn, Indeed, Glassdoor and Welcome to the Jungle actively
+PRIMARY SOURCE: France Travail (the official French public employment
+service, formerly Pole Emploi) exposes a free, ToS-compliant search API
+that aggregates real live postings from across the French market -
+including many relayed from private job boards. This is the reliable,
+high-volume source (see scrape_france_travail below); it needs a free
+client_id/client_secret from https://francetravail.io/inscription set as
+the FRANCE_TRAVAIL_CLIENT_ID / FRANCE_TRAVAIL_CLIENT_SECRET environment
+variables. Without them it's skipped (logged once), not an error.
+
+SECONDARY: LinkedIn, Indeed, Glassdoor and Welcome to the Jungle actively
 block automated scraping and their Terms of Service restrict it. The
 functions below are written defensively (short timeouts, retries, a real
 User-Agent, best-effort parsing) but are expected to return few or zero
 results in most environments - that is normal, not a bug: it's exactly
-the "N/6 sources ok" case this module is built to degrade into gracefully.
+the "N/9 sources ok" case this module is built to degrade into gracefully.
 When live sources under-deliver, `run_daily_scrape()` tops up the feed
 with `generate_seed_jobs()` so the dashboard stays usable for demoing the
 scoring/CV/letter flow - those demo postings link out to a live Google
-search for the role instead of a dead URL. For a production deployment,
-replace these scrapers with official job-board APIs (e.g. France Travail
-/ Pole Emploi API, LinkedIn Talent API) which are reliable and
-ToS-compliant.
+search for the role instead of a dead URL.
 """
 import logging
+import os
 import random
 import re
 import time
@@ -49,7 +56,7 @@ MAX_RETRIES = 3
 BACKOFF_BASE = 2  # seconds: 2, 4, 8
 
 ALLOWED_SOURCES = {
-    "Indeed", "LinkedIn", "WTTJ", "Glassdoor", "Consulting.fr",
+    "France Travail", "Indeed", "LinkedIn", "WTTJ", "Glassdoor", "Consulting.fr",
     "RegionsJob", "StepStone", "Talent.com", "Jooble", "Seed/Demo",
 }
 
@@ -149,6 +156,168 @@ def _clean_job(job: dict) -> dict:
             f"Voir l'offre complete via le lien source ({job.get('source', 'source')})."
         )
     return job
+
+
+FT_TOKEN_URL = "https://entreprise.pole-emploi.fr/connexion/oauth2/access_token?realm=/partenaire"
+FT_SEARCH_URL = "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search"
+FT_PAGE_SIZE = 50
+FT_MAX_PAGES = 3  # up to 150 offers per keyword
+
+_ft_token_cache = {"token": None, "expires_at": 0}
+_ft_warned_missing_credentials = False
+
+
+def _get_france_travail_token():
+    """OAuth2 client-credentials flow, with the token cached until shortly
+    before it expires. Returns None (logging once) if no credentials are
+    configured - callers treat that as "source unavailable", not an error.
+    """
+    global _ft_warned_missing_credentials
+    client_id = os.environ.get("FRANCE_TRAVAIL_CLIENT_ID")
+    client_secret = os.environ.get("FRANCE_TRAVAIL_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        if not _ft_warned_missing_credentials:
+            logger.info(
+                "France Travail: FRANCE_TRAVAIL_CLIENT_ID/SECRET not set - "
+                "skipping this source (get free credentials at francetravail.io)"
+            )
+            _ft_warned_missing_credentials = True
+        return None
+
+    now = time.time()
+    if _ft_token_cache["token"] and now < _ft_token_cache["expires_at"]:
+        return _ft_token_cache["token"]
+
+    try:
+        resp = requests.post(
+            FT_TOKEN_URL,
+            data={
+                "grant_type": "client_credentials",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "scope": "api_offresdemploiv2 o2dsoffre",
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        _ft_token_cache["token"] = data["access_token"]
+        _ft_token_cache["expires_at"] = now + data.get("expires_in", 1000) - 60
+        return _ft_token_cache["token"]
+    except requests.RequestException as e:
+        logger.error("France Travail: failed to obtain OAuth token: %s", e)
+        return None
+    except (KeyError, ValueError) as e:
+        logger.error("France Travail: unexpected token response: %s", e)
+        return None
+
+
+def _parse_ft_salary(salaire):
+    """France Travail returns salary as free text like 'Annuel de 45000.0
+    Euros a 55000.0 Euros' or 'Mensuel de 3000.0 a 3500.0 Euros'. Extracts
+    the numbers and normalizes to an annual figure; returns (None, None)
+    if nothing usable is present."""
+    if not salaire:
+        return None, None
+    libelle = (salaire.get("libelle") or "")
+    if not libelle:
+        return None, None
+
+    numbers = [float(n.replace(",", ".")) for n in re.findall(r"\d+(?:[.,]\d+)?", libelle)]
+    if not numbers:
+        return None, None
+
+    low = libelle.lower()
+    multiplier = 1
+    if "mensuel" in low:
+        multiplier = 12
+    elif "horaire" in low:
+        multiplier = 1607  # duree legale annuelle de reference (35h/semaine)
+
+    if len(numbers) == 1:
+        lo = hi = round(numbers[0] * multiplier)
+    else:
+        lo, hi = sorted(numbers[:2])
+        lo, hi = round(lo * multiplier), round(hi * multiplier)
+
+    # Source data occasionally mislabels the period (e.g. an employer
+    # enters an already-annual figure but the posting is tagged
+    # "Mensuel", which would multiply it by 12 into a 6-figure absurdity).
+    # A number outside a plausible French salary range is more likely a
+    # mislabeled period than a real offer - drop it rather than store and
+    # score against a figure we know is implausible.
+    if hi > 300_000 or lo < 10_000:
+        return None, None
+    return lo, hi
+
+
+def scrape_france_travail(keyword="Product Owner", limit=None):
+    """Search live postings via the official France Travail API - the
+    primary, reliable, high-volume source. Paginates up to FT_MAX_PAGES
+    pages of FT_PAGE_SIZE results each."""
+    token = _get_france_travail_token()
+    if not token:
+        return []
+
+    jobs = []
+    for page in range(FT_MAX_PAGES):
+        start = page * FT_PAGE_SIZE
+        end = start + FT_PAGE_SIZE - 1
+        try:
+            resp = requests.get(
+                FT_SEARCH_URL,
+                headers={"Authorization": f"Bearer {token}"},
+                params={"motsCles": keyword, "range": f"{start}-{end}", "sort": 1},
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.RequestException as e:
+            logger.error("France Travail: request failed for %r page %d: %s", keyword, page, e)
+            break
+
+        if resp.status_code == 204:
+            break  # no results at all
+        if resp.status_code not in (200, 206):
+            logger.warning("France Travail: status %d for %r page %d", resp.status_code, keyword, page)
+            break
+
+        try:
+            results = resp.json().get("resultats", [])
+        except ValueError:
+            logger.error("France Travail: invalid JSON for %r page %d", keyword, page)
+            break
+
+        for offer in results:
+            try:
+                salary_min, salary_max = _parse_ft_salary(offer.get("salaire"))
+                entreprise = ((offer.get("entreprise") or {}).get("nom")
+                              or "Entreprise non precisee")
+                lieu = (offer.get("lieuTravail") or {}).get("libelle") or "France"
+                origine = offer.get("origineOffre") or {}
+                job_url = origine.get("urlOrigine") or (
+                    f"https://candidat.francetravail.fr/offres/recherche/detail/{offer.get('id', '')}"
+                )
+                jobs.append({
+                    "id": str(uuid.uuid4()),
+                    "date_found": date.today().isoformat(),
+                    "job_title": offer.get("intitule", ""),
+                    "company": entreprise,
+                    "location": lieu,
+                    "sector": offer.get("secteurActiviteLibelle") or "",
+                    "salary_min": salary_min,
+                    "salary_max": salary_max,
+                    "job_url": job_url,
+                    "job_description": offer.get("description", ""),
+                    "source": "France Travail",
+                })
+            except Exception as e:
+                logger.warning("France Travail: failed to parse one offer: %s", e)
+
+        if len(results) < FT_PAGE_SIZE:
+            break  # last page reached
+        time.sleep(0.3)
+
+    return jobs
 
 
 def scrape_indeed(keyword="Product Owner", location="France", limit=15):
@@ -433,6 +602,7 @@ def scrape_wttj(keyword="Product Owner", limit=15):
 
 
 SOURCES = [
+    scrape_france_travail,
     scrape_indeed,
     scrape_glassdoor,
     scrape_consulting_fr,

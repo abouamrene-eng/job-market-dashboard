@@ -24,6 +24,57 @@ si la base est vide.
 Ouvrez `config.py` et completez `CANDIDATE["phone"]` avec votre numero de
 telephone (l'email est deja pre-rempli avec `abouamrene@gmail.com`).
 
+## Securite : proteger l'acces
+
+L'application sert des donnees personnelles (email, telephone dans les CV
+generes) et peut declencher du scraping - elle ne doit jamais rester
+accessible publiquement sans protection. Definissez :
+
+```bash
+export DASHBOARD_USER="amine"          # optionnel, "amine" par defaut
+export DASHBOARD_PASSWORD="..."        # obligatoire pour activer la protection
+```
+
+Sur Render : Dashboard -> votre service -> Environment -> Add Environment
+Variable. Le navigateur demandera alors identifiant/mot de passe (HTTP
+Basic Auth) a la premiere visite. **Sans `DASHBOARD_PASSWORD` defini,
+l'application tourne sans aucune protection** - pratique en local, jamais
+souhaitable en production.
+
+## Persistance du suivi de candidature (Supabase)
+
+Le cache d'offres (`data/jobs.db`) vit sur un disque ephemere en
+production (voir "Hebergement" plus bas) et est regenere automatiquement
+apres chaque redeploiement. Mais le *suivi* (quelles offres ont ete
+marquees "candidate", avec quelles notes) ne peut pas etre regenere - il
+est donc mirrore dans un projet Supabase (Postgres) gratuit qui, lui,
+survit aux redeploiements.
+
+1. Creez un projet gratuit sur https://supabase.com
+2. Dans l'editeur SQL du projet, executez :
+   ```sql
+   create table job_tracking (
+     job_url text primary key,
+     status text not null default 'new',
+     date_applied date,
+     notes text,
+     updated_at timestamptz not null default now()
+   );
+   ```
+3. Dans Project Settings -> API, recuperez l'**URL du projet** et la cle
+   **`service_role`** (pas la cle `anon` - `service_role` est necessaire
+   car cette table n'a pas vocation a etre appelee depuis un navigateur)
+4. Definissez les variables d'environnement (jamais dans le code) :
+   ```bash
+   export SUPABASE_URL="https://xxxxx.supabase.co"
+   export SUPABASE_SERVICE_KEY="..."
+   ```
+
+Sans ces identifiants, le suivi fonctionne normalement mais uniquement
+tant que le processus tourne - il repart a zero au prochain redeploiement
+(comportement d'avant cette fonctionnalite, logue une fois, jamais une
+erreur).
+
 ## A savoir sur le scraping
 
 **Source principale : l'API France Travail.** C'est la source fiable et a

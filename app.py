@@ -12,6 +12,7 @@ from flask import Flask, Response, jsonify, request, send_file, render_template
 
 import database as db
 import scraper
+import tracking_store
 from cv_generator import generate_cv
 from letter_generator import generate_letter
 from scorer import score_job
@@ -90,6 +91,33 @@ def _store_jobs(jobs):
     return inserted
 
 
+def reconcile_tracking():
+    """Overlays durable tracking data (Supabase) onto whatever jobs were
+    just (re)scraped into the local, ephemeral SQLite cache - so a job
+    the user already applied to shows correctly again after a redeploy
+    wiped the local database, instead of reappearing as untouched."""
+    tracking = tracking_store.get_all_tracking()
+    if not tracking:
+        return
+    applied = 0
+    for job_url, row in tracking.items():
+        local_job = db.get_job_by_url(job_url)
+        if not local_job:
+            continue
+        fields = {}
+        if row.get("status"):
+            fields["status"] = row["status"]
+        if row.get("date_applied"):
+            fields["date_applied"] = row["date_applied"]
+        if row.get("notes"):
+            fields["notes"] = row["notes"]
+        if fields:
+            db.update_job(local_job["id"], **fields)
+            applied += 1
+    if applied:
+        logger.info("Reconciled tracking state for %d job(s) from Supabase", applied)
+
+
 def scrape_and_score(min_results=6, progress_cb=None):
     """Runs every scraper, scores and stores the results. Returns
     (inserted_count, run_log)."""
@@ -100,6 +128,7 @@ def scrape_and_score(min_results=6, progress_cb=None):
         # any leftover demo postings from earlier (e.g. the initial boot
         # seed) so they stop outranking real offers.
         db.delete_jobs_by_source("Seed/Demo")
+    reconcile_tracking()
     return inserted, run_log
 
 
@@ -246,6 +275,7 @@ def api_apply(job_id):
     status = body.get("status", "applied")
     applied_date = body.get("date", date.today().isoformat())
     db.update_job(job_id, status=status, date_applied=applied_date)
+    tracking_store.upsert_tracking(job["job_url"], status=status, date_applied=applied_date)
     return jsonify({"success": True})
 
 
@@ -262,6 +292,7 @@ def api_update_status(job_id):
     if "notes" in body:
         fields["notes"] = body["notes"]
     db.update_job(job_id, **fields)
+    tracking_store.upsert_tracking(job["job_url"], status=fields.get("status"), notes=fields.get("notes"))
     return jsonify({"success": True})
 
 

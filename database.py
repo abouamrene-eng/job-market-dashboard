@@ -187,6 +187,12 @@ def get_job(job_id: str):
         return dict(row) if row else None
 
 
+def get_job_by_url(job_url: str):
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM jobs WHERE job_url = ?", (job_url,)).fetchone()
+        return dict(row) if row else None
+
+
 def update_job(job_id: str, **fields):
     if not fields:
         return

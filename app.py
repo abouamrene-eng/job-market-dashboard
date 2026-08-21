@@ -247,6 +247,24 @@ def api_insights():
     return jsonify(db.get_insights())
 
 
+def _start_scrape_task():
+    """Kicks off a scraping run in a background thread and returns its
+    task_id immediately - shared by the manual refresh endpoint and the
+    automatic boot-time refresh below."""
+    task_id = str(uuid.uuid4())
+    SCRAPE_TASKS[task_id] = {
+        "status": "running",
+        "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "progress": None,
+        "run_log": None,
+        "new_jobs": None,
+        "error": None,
+    }
+    thread = threading.Thread(target=_run_scrape_task, args=(task_id,), daemon=True)
+    thread.start()
+    return task_id
+
+
 # ---------------------------------------------------------------------------
 # API - manual refresh (async: kicks off scraping in the background and
 # returns immediately, per the improvement spec's non-blocking requirement)
@@ -254,17 +272,7 @@ def api_insights():
 @app.route("/api/scrape/run", methods=["POST"])
 def api_scrape_run():
     try:
-        task_id = str(uuid.uuid4())
-        SCRAPE_TASKS[task_id] = {
-            "status": "running",
-            "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "progress": None,
-            "run_log": None,
-            "new_jobs": None,
-            "error": None,
-        }
-        thread = threading.Thread(target=_run_scrape_task, args=(task_id,), daemon=True)
-        thread.start()
+        task_id = _start_scrape_task()
         return jsonify({
             "success": True,
             "status": "scraping_in_progress",
@@ -311,9 +319,16 @@ create_app()
 # Under Flask's debug reloader the module is imported twice (a watcher
 # process, then the actual server child with WERKZEUG_RUN_MAIN=true).
 # Only the process that will actually serve requests should start the
-# background scheduler.
+# background scheduler / boot-time refresh.
 if not DEBUG or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     start_scheduler()
+    if db.has_only_demo_jobs():
+        # Storage is ephemeral on hosts like Render's free tier: every
+        # redeploy/restart wipes real data back down to the demo seed.
+        # Kick off a real scrape in the background right away instead of
+        # waiting for a manual refresh or the 7h cron.
+        logger.info("Only demo postings on hand at boot - starting a background refresh")
+        _start_scrape_task()
 
 
 if __name__ == "__main__":

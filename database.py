@@ -170,6 +170,17 @@ def count_jobs(**filters):
     return len(jobs)
 
 
+def has_only_demo_jobs():
+    """True if every job currently stored came from the seed/demo
+    fallback - i.e. no real source has ever populated the database (a
+    fresh boot on ephemeral storage, most likely)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) c FROM jobs WHERE source != 'Seed/Demo'"
+        ).fetchone()
+        return row["c"] == 0
+
+
 def get_job(job_id: str):
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()

@@ -1,4 +1,6 @@
 """Durable application-tracking storage via Supabase's REST API (PostgREST).
+Verified 2026-08-21: status + notes on a real posting survived a full
+Render redeploy (local SQLite wipe -> boot-time auto-refresh) intact.
 
 Why this exists: the local SQLite database lives on Render's ephemeral
 disk and is wiped on every redeploy/restart. The job listings themselves

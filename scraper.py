@@ -57,6 +57,13 @@ SOURCE_TIMEOUT_BUDGET = 60   # seconds, soft budget per source - sources run in
                               # wall-clock time, not just one source's share of it
 MAX_RETRIES = 2
 BACKOFF_BASE = 2  # seconds: 2, (4 on a 3rd attempt if MAX_RETRIES is raised)
+# Capped well below len(SOURCES): on a CPU-constrained host (e.g. Render's
+# free tier, a fraction of one vCPU), running all sources as concurrent
+# threads at once starved the single gunicorn worker of CPU badly enough
+# that the whole app stopped answering requests mid-scrape - observed in
+# production, not theoretical. A small pool still gets most of the wall-
+# clock win over fully sequential without that risk.
+PARALLEL_SOURCES = 4
 
 ALLOWED_SOURCES = {
     "France Travail", "Indeed", "LinkedIn", "WTTJ", "Glassdoor", "Consulting.fr",
@@ -793,7 +800,7 @@ def run_daily_scrape(min_results=6, progress_cb=None):
     all_valid_jobs = []
 
     raw_results = {}
-    with ThreadPoolExecutor(max_workers=len(SOURCES)) as pool:
+    with ThreadPoolExecutor(max_workers=PARALLEL_SOURCES) as pool:
         futures = {pool.submit(_run_one_source, fn): fn for fn in SOURCES}
         completed = 0
         for future in as_completed(futures):

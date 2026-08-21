@@ -5,6 +5,7 @@ import secrets
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import date
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -132,19 +133,40 @@ def scrape_and_score(min_results=6, progress_cb=None):
     return inserted, run_log
 
 
+SCRAPE_HARD_TIMEOUT = 240  # seconds - see _run_scrape_task
+
+
 def _run_scrape_task(task_id):
+    """Runs scrape_and_score under a hard wall-clock timeout. Belt and
+    braces on top of scraper.py's own per-source timeouts: a run has
+    been observed taking far longer on a real host than any configured
+    timeout should allow (network conditions outside this app's
+    control), which would otherwise leave a task stuck in "running"
+    forever - confusing for anyone polling /api/scrape/status. On
+    timeout the abandoned background thread keeps running until it
+    finishes on its own (harmless, just wasted work); the task itself
+    is reported as failed immediately so the UI never hangs on it."""
     task = SCRAPE_TASKS[task_id]
 
     def progress_cb(source_name, index, total):
         task["progress"] = {"source": source_name, "index": index, "total": total}
 
+    pool = ThreadPoolExecutor(max_workers=1)
     try:
-        inserted, run_log = scrape_and_score(progress_cb=progress_cb)
+        future = pool.submit(scrape_and_score, progress_cb=progress_cb)
+        inserted, run_log = future.result(timeout=SCRAPE_HARD_TIMEOUT)
         task.update(
             status="completed",
             finished_at=time.strftime("%Y-%m-%d %H:%M:%S"),
             new_jobs=inserted,
             run_log=run_log,
+        )
+    except FutureTimeoutError:
+        logger.error("Scraping task %s exceeded %ds - abandoning", task_id, SCRAPE_HARD_TIMEOUT)
+        task.update(
+            status="failed",
+            finished_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+            error=f"Timeout apres {SCRAPE_HARD_TIMEOUT}s (conditions reseau) - reessayez",
         )
     except Exception as e:
         logger.error("Scraping task %s failed: %s", task_id, e, exc_info=True)
@@ -153,6 +175,9 @@ def _run_scrape_task(task_id):
             finished_at=time.strftime("%Y-%m-%d %H:%M:%S"),
             error=str(e),
         )
+    finally:
+        # wait=False: never block on a run we've already given up on.
+        pool.shutdown(wait=False)
 
 
 def _schedule_daily_retry(attempt):

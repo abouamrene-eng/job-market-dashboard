@@ -1,0 +1,19 @@
+# Python
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Base de donnees et exports generes
+data/*.db
+data/export/*
+!data/export/.gitkeep
+
+# Environnement
+.env
+.env.*
+
+# Editeurs / OS
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Amine's Job Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="bg-slate-100 text-slate-800">
+
+<header class="bg-navy text-white shadow-md sticky top-0 z-20">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+    <h1 class="text-lg md:text-xl font-semibold flex items-center gap-2">
+      <span>📊</span> Amine's Job Dashboard
+      <span class="hidden md:inline text-sm font-normal text-slate-300">| Updates quotidiens</span>
+    </h1>
+    <div class="flex items-center gap-3">
+      <button id="btn-refresh" class="bg-emerald-600 hover:bg-emerald-500 transition text-sm px-3 py-1.5 rounded-md font-medium">
+        🔄 Refresh
+      </button>
+      <span class="text-slate-300 text-sm hidden sm:inline">⚙️</span>
+    </div>
+  </div>
+</header>
+
+<section class="max-w-7xl mx-auto px-4 py-4">
+  <h2 class="text-sm font-semibold text-slate-500 mb-2">📈 STATS DU JOUR</h2>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div class="stat-card">
+      <div class="stat-value" id="stat-total">-</div>
+      <div class="stat-label">Offres</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-salary">-</div>
+      <div class="stat-label">Salaire moyen</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-top">-</div>
+      <div class="stat-label">Top matches</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="stat-applied">-</div>
+      <div class="stat-label">Candidatures</div>
+    </div>
+  </div>
+</section>
+
+<main class="max-w-7xl mx-auto px-4 pb-10 grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6">
+
+  <aside class="bg-white rounded-lg shadow-sm p-4 h-fit lg:sticky lg:top-20">
+    <div class="mb-5">
+      <h3 class="filter-title">🔍 Secteur</h3>
+      <div class="space-y-1" id="filter-sector">
+        <label class="filter-check"><input type="checkbox" value="Conseil" checked> Conseil</label>
+        <label class="filter-check"><input type="checkbox" value="Tech" checked> Tech</label>
+        <label class="filter-check"><input type="checkbox" value="Industrie" checked> Industrie</label>
+        <label class="filter-check"><input type="checkbox" value="Energie" checked> Energie</label>
+        <label class="filter-check"><input type="checkbox" value="Finance" checked> Finance</label>
+        <label class="filter-check"><input type="checkbox" value="Insurtech" checked> Insurtech</label>
+      </div>
+    </div>
+
+    <div class="mb-5">
+      <h3 class="filter-title">💰 Salaire</h3>
+      <input type="range" id="filter-salary" min="60000" max="110000" step="1000" value="60000" class="w-full">
+      <div class="text-xs text-slate-500 mt-1">Min : <span id="filter-salary-value">60 000€</span></div>
+    </div>
+
+    <div class="mb-5">
+      <h3 class="filter-title">⭐ Score</h3>
+      <select id="filter-score" class="w-full border rounded-md px-2 py-1.5 text-sm">
+        <option value="all">Tous</option>
+        <option value="top">Top &gt; 75</option>
+        <option value="good">Good 60-75</option>
+      </select>
+    </div>
+
+    <div class="mb-5">
+      <h3 class="filter-title">📍 Localisation</h3>
+      <div class="space-y-1" id="filter-location">
+        <label class="filter-check"><input type="checkbox" value="Remote" checked> Remote</label>
+        <label class="filter-check"><input type="checkbox" value="Mixte" checked> Mixte</label>
+        <label class="filter-check"><input type="checkbox" value="IDF" checked> Ile-de-France</label>
+        <label class="filter-check"><input type="checkbox" value="Province" checked> Province</label>
+      </div>
+    </div>
+
+    <div class="mb-5">
+      <h3 class="filter-title">📌 Status</h3>
+      <select id="filter-status" class="w-full border rounded-md px-2 py-1.5 text-sm">
+        <option value="all">Tous</option>
+        <option value="new">Non applique</option>
+        <option value="applied">Applique</option>
+        <option value="interview">Entretien</option>
+        <option value="offer">Offre</option>
+        <option value="rejected">Refuse</option>
+      </select>
+    </div>
+
+    <button id="btn-reset" class="w-full bg-slate-200 hover:bg-slate-300 transition text-sm py-2 rounded-md font-medium">
+      🔄 Reset
+    </button>
+  </aside>
+
+  <section>
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-slate-500">Tri :</label>
+        <select id="sort-select" class="border rounded-md px-2 py-1 text-sm">
+          <option value="score">Score</option>
+          <option value="salary">Salaire</option>
+          <option value="recent">Plus recent</option>
+        </select>
+      </div>
+      <div id="jobs-count" class="text-sm text-slate-500"></div>
+    </div>
+
+    <div id="jobs-feed" class="space-y-4"></div>
+    <div id="jobs-empty" class="hidden text-center text-slate-400 py-16">Aucune offre ne correspond a ces filtres.</div>
+
+    <div class="flex items-center justify-center gap-4 mt-6">
+      <button id="btn-prev" class="pagination-btn">&larr; Prev</button>
+      <span id="page-indicator" class="text-sm text-slate-500">Page 1</span>
+      <button id="btn-next" class="pagination-btn">Next &rarr;</button>
+    </div>
+  </section>
+</main>
+
+<div id="job-modal" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-30 p-4">
+  <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 relative">
+    <button id="modal-close" class="absolute top-3 right-4 text-slate-400 hover:text-slate-700 text-xl">&times;</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<div id="toast" class="fixed bottom-5 right-5 bg-navy text-white px-4 py-2 rounded-md shadow-lg opacity-0 pointer-events-none transition-opacity"></div>
+
+<script src="{{ url_for('static', filename='js/api.js') }}"></script>
+<script src="{{ url_for('static', filename='js/filters.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

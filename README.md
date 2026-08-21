@@ -74,8 +74,11 @@ source live configuree.
 - Suivi de candidature (new / applied / interview / offer / rejected)
 - Stats du jour et market insights (salaire moyen par secteur, entreprises
   qui recrutent le plus, tendance des offres sur 14 jours)
-- Rafraichissement manuel via le bouton "Refresh", et scraping automatique
-  quotidien a 7h (APScheduler)
+- Rafraichissement manuel via le bouton "Refresh", scraping automatique
+  quotidien a 7h (APScheduler), et rafraichissement automatique au demarrage
+  si la base ne contient que des offres de demo (utile sur un hebergement
+  au stockage ephemere comme le plan gratuit Render, ou chaque redeploiement
+  reinitialise la base - voir `has_only_demo_jobs()` dans `database.py`)
 
 ## Structure
 

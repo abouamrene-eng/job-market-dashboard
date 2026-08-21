@@ -7,8 +7,7 @@ CANDIDATE = {
     "name": "Amine Bouamrene",
     "age": 26,
     "email": "abouamrene@gmail.com",
-    # Renseignez votre numero de telephone ici (non fourni par defaut).
-    "phone": "[Telephone a renseigner]",
+    "phone": "06 65 46 70 56",
     "title_default": "Product Owner | Consultant AMOA",
     "education": [
         {

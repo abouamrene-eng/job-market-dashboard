@@ -185,7 +185,17 @@ def create_app():
     return app
 
 
-if __name__ == "__main__":
-    create_app()
+DEBUG = os.environ.get("FLASK_DEBUG", "0") == "1"
+
+create_app()
+# Under Flask's debug reloader the module is imported twice (a watcher
+# process, then the actual server child with WERKZEUG_RUN_MAIN=true).
+# Only the process that will actually serve requests should start the
+# background scheduler.
+if not DEBUG or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     start_scheduler()
-    app.run(debug=True, host="0.0.0.0", port=5000)
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=DEBUG, host="0.0.0.0", port=port)

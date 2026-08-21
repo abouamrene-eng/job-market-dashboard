@@ -41,7 +41,7 @@ from datetime import date
 import requests
 from bs4 import BeautifulSoup
 
-from config import SEARCH_KEYWORDS
+from config import SEARCH_CRITERIA, SEARCH_KEYWORDS
 
 logger = logging.getLogger("scraper")
 
@@ -151,6 +151,42 @@ def validate_job(job: dict):
         return False, "salary_max must be positive"
     if salary_min is not None and salary_max is not None and salary_min > salary_max:
         return False, "salary_min > salary_max"
+
+    return True, None
+
+
+# Exclusion criteria from the original brief. Only the ones with an actual
+# data signal to check against are implemented here:
+#   - "Offres < 60k brut" -> salary floor, checked below when a salary is
+#     known at all (most France Travail postings with no salary listed are
+#     kept - excluding them outright would gut the results for no reason,
+#     since "unknown" isn't the same claim as "below 60k").
+#   - "Roles purement operationnels (pas de management)" -> too fuzzy to
+#     detect reliably from title/description text without real false
+#     positives (rejecting a legitimate PO/AMOA posting for an unlucky
+#     phrase). Narrowed to a high-confidence proxy instead: internship/
+#     apprenticeship postings, which are unambiguously not this candidate's
+#     target regardless of buzzwords in the title.
+#   - "Startups < 1 an ou financees < 100k EUR" -> NOT implemented. France
+#     Travail's API exposes no company-age or funding data, and neither do
+#     any of the other sources in practice - there is no signal to filter
+#     on. Guessing from the company name would be worse than not filtering.
+INTERNSHIP_KEYWORDS = ["stage", "stagiaire", "alternance", "alternant", "apprenti", "apprentissage"]
+
+
+def meets_candidate_criteria(job: dict):
+    """Returns (True, None) if the job passes the candidate's hard
+    exclusion criteria, or (False, reason) otherwise. Distinct from
+    validate_job(): that checks data quality, this checks fit."""
+    salary_min, salary_max = job.get("salary_min"), job.get("salary_max")
+    if salary_min is not None or salary_max is not None:
+        reference = max(salary_min or 0, salary_max or 0)
+        if reference < SEARCH_CRITERIA["exclude_below_salary"]:
+            return False, f"salary below {SEARCH_CRITERIA['exclude_below_salary']}"
+
+    title = (job.get("job_title") or "").lower()
+    if any(re.search(rf"\b{kw}\b", title) for kw in INTERNSHIP_KEYWORDS):
+        return False, "internship/apprenticeship role"
 
     return True, None
 
@@ -828,7 +864,7 @@ def run_daily_scrape(min_results=6, progress_cb=None, include_secondary=False):
     for source_fn in sources:
         source_name = source_fn.__name__.replace("scrape_", "")
         source_jobs, error = raw_results[source_name]
-        found = duplicates = validated = rejected = 0
+        found = duplicates = validated = rejected = excluded = 0
 
         for job in source_jobs:
             job = _clean_job(job)
@@ -836,6 +872,12 @@ def run_daily_scrape(min_results=6, progress_cb=None, include_secondary=False):
             if not ok:
                 rejected += 1
                 logger.info("rejected job from %s: %s", source_name, reason)
+                continue
+
+            ok, reason = meets_candidate_criteria(job)
+            if not ok:
+                excluded += 1
+                logger.info("excluded job from %s: %s", source_name, reason)
                 continue
 
             url_key = _normalize_url(job["job_url"])
@@ -852,10 +894,10 @@ def run_daily_scrape(min_results=6, progress_cb=None, include_secondary=False):
         found = len(source_jobs)
         run_log["sources"][source_name] = {
             "found": found, "duplicates": duplicates,
-            "saved": validated, "rejected": rejected, "error": error,
+            "saved": validated, "rejected": rejected, "excluded": excluded, "error": error,
         }
-        logger.info("%s: %d found, %d duplicates, %d saved, %d rejected%s",
-                     source_name, found, duplicates, validated, rejected,
+        logger.info("%s: %d found, %d duplicates, %d saved, %d rejected, %d excluded%s",
+                     source_name, found, duplicates, validated, rejected, excluded,
                      f" - ERROR: {error}" if error else "")
 
     if len(all_valid_jobs) < min_results:
@@ -865,6 +907,9 @@ def run_daily_scrape(min_results=6, progress_cb=None, include_secondary=False):
         for job in seed_jobs:
             job = _clean_job(job)
             ok, _ = validate_job(job)
+            if not ok:
+                continue
+            ok, _ = meets_candidate_criteria(job)
             if not ok:
                 continue
             url_key = _normalize_url(job["job_url"])
@@ -877,7 +922,7 @@ def run_daily_scrape(min_results=6, progress_cb=None, include_secondary=False):
         all_valid_jobs.extend(seed_kept)
         run_log["sources"]["Seed/Demo"] = {
             "found": len(seed_jobs), "duplicates": len(seed_jobs) - len(seed_kept),
-            "saved": len(seed_kept), "rejected": 0, "error": None,
+            "saved": len(seed_kept), "rejected": 0, "excluded": 0, "error": None,
         }
         logger.info("Seed/Demo: topped up with %d demo postings", len(seed_kept))
 
@@ -885,7 +930,9 @@ def run_daily_scrape(min_results=6, progress_cb=None, include_secondary=False):
     run_log["total_found"] = sum(s["found"] for s in run_log["sources"].values())
     run_log["total_duplicates"] = sum(s["duplicates"] for s in run_log["sources"].values())
     run_log["total_saved"] = sum(s["saved"] for s in run_log["sources"].values())
-    logger.info("Total: %d found, %d duplicates, %d saved",
-                 run_log["total_found"], run_log["total_duplicates"], run_log["total_saved"])
+    run_log["total_excluded"] = sum(s.get("excluded", 0) for s in run_log["sources"].values())
+    logger.info("Total: %d found, %d duplicates, %d saved, %d excluded",
+                 run_log["total_found"], run_log["total_duplicates"],
+                 run_log["total_saved"], run_log["total_excluded"])
 
     return all_valid_jobs, run_log

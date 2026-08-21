@@ -57,12 +57,12 @@ SOURCE_TIMEOUT_BUDGET = 60   # seconds, soft budget per source - sources run in
                               # wall-clock time, not just one source's share of it
 MAX_RETRIES = 2
 BACKOFF_BASE = 2  # seconds: 2, (4 on a 3rd attempt if MAX_RETRIES is raised)
-# Capped well below len(SOURCES): on a CPU-constrained host (e.g. Render's
-# free tier, a fraction of one vCPU), running all sources as concurrent
-# threads at once starved the single gunicorn worker of CPU badly enough
-# that the whole app stopped answering requests mid-scrape - observed in
-# production, not theoretical. A small pool still gets most of the wall-
-# clock win over fully sequential without that risk.
+# On a CPU-constrained host (e.g. Render's free tier, a fraction of one
+# vCPU), running many sources as concurrent threads at once starved the
+# single gunicorn worker of CPU badly enough that the whole app stopped
+# answering requests mid-scrape - observed in production, not theoretical.
+# Only matters if SECONDARY_SOURCES are ever enabled (see below) - with
+# PRIMARY_SOURCES alone this pool never has more than one thread to run.
 PARALLEL_SOURCES = 4
 
 ALLOWED_SOURCES = {
@@ -611,8 +611,22 @@ def scrape_wttj(keyword="Product Owner", limit=15):
     return []
 
 
-SOURCES = [
+# PRIMARY_SOURCES run on every automatic/manual refresh: France Travail
+# is the one source that has ever actually returned results in extensive
+# testing (hundreds of real postings per run, in seconds).
+#
+# SECONDARY_SOURCES are opt-in only (run_daily_scrape(include_secondary=
+# True)) rather than part of the default rotation. Across every test run
+# in this project's history they returned zero real results (403s, SSL
+# failures, or bot walls) while eating most of the run's wall time on
+# retries against sites that block them regardless - on a CPU-constrained
+# host this once starved the app of CPU badly enough to stop answering
+# requests entirely. Kept here, not deleted, in case a future proxy/
+# Selenium setup makes them worth trying again.
+PRIMARY_SOURCES = [
     scrape_france_travail,
+]
+SECONDARY_SOURCES = [
     scrape_indeed,
     scrape_glassdoor,
     scrape_consulting_fr,
@@ -767,33 +781,32 @@ def _run_one_source(source_fn):
     return source_name, jobs, error
 
 
-def run_daily_scrape(min_results=6, progress_cb=None):
-    """Runs every source concurrently (with retry/backoff/error-handling
-    per source), validates and deduplicates the results, tops up with
-    seed data if needed, and returns (jobs, run_log). run_log mirrors the
-    per-source counters the improvement spec asks for logged
+def run_daily_scrape(min_results=6, progress_cb=None, include_secondary=False):
+    """Runs PRIMARY_SOURCES (and SECONDARY_SOURCES too if include_secondary
+    is set) concurrently, validates and deduplicates the results, tops up
+    with seed data if needed, and returns (jobs, run_log). run_log mirrors
+    the per-source counters the improvement spec asks for logged
     (found/duplicates/saved/errors) and is what the async refresh
     endpoint exposes as progress.
 
-    Sources run in parallel (ThreadPoolExecutor) rather than sequentially:
-    they hit entirely different domains, so there is no shared rate limit
-    to protect by serializing them, and in practice France Travail answers
-    in seconds while most secondary sources spend most of a run retrying
-    against a site that blocks them regardless - sequentially, that adds
-    up to minutes for zero benefit. Validation/dedup/logging still run
-    single-threaded afterward, so there is no concurrent access to the
-    shared seen-jobs state.
+    Sources run in parallel (ThreadPoolExecutor) rather than sequentially -
+    capped at PARALLEL_SOURCES concurrent threads, see that constant for
+    why. Validation/dedup/logging run single-threaded afterward, so there
+    is no concurrent access to the shared seen-jobs state.
 
     progress_cb(source_name, completed, total), if given, is called as
     each source finishes (not in a fixed order) - lets the caller (the
     async refresh endpoint) report "scraping en cours (3/9 sources)" back
     to the frontend.
     """
+    sources = PRIMARY_SOURCES + (SECONDARY_SOURCES if include_secondary else [])
+
     run_log = {
         "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "sources": {},
     }
-    logger.info("Starting scraping run (%d sources in parallel)", len(SOURCES))
+    logger.info("Starting scraping run (%d source(s), up to %d in parallel)",
+                 len(sources), PARALLEL_SOURCES)
 
     seen_urls = set()
     seen_title_company = set()
@@ -801,18 +814,18 @@ def run_daily_scrape(min_results=6, progress_cb=None):
 
     raw_results = {}
     with ThreadPoolExecutor(max_workers=PARALLEL_SOURCES) as pool:
-        futures = {pool.submit(_run_one_source, fn): fn for fn in SOURCES}
+        futures = {pool.submit(_run_one_source, fn): fn for fn in sources}
         completed = 0
         for future in as_completed(futures):
             source_name, source_jobs, error = future.result()
             raw_results[source_name] = (source_jobs, error)
             completed += 1
             if progress_cb:
-                progress_cb(source_name, completed, len(SOURCES))
+                progress_cb(source_name, completed, len(sources))
 
     # Validation, dedup and logging happen here, single-threaded, in a
     # stable source order - identical behavior to the old sequential loop.
-    for source_fn in SOURCES:
+    for source_fn in sources:
         source_name = source_fn.__name__.replace("scrape_", "")
         source_jobs, error = raw_results[source_name]
         found = duplicates = validated = rejected = 0

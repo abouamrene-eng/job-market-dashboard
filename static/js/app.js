@@ -42,6 +42,8 @@
           <button class="btn-success" data-action="apply" data-id="${job.id}" ${isApplied ? "disabled" : ""}>
             ${isApplied ? "✅ Candidate" : "Marquer candidate"}
           </button>
+          <a class="link-btn" href="${job.job_url}" target="_blank" rel="noopener"
+             title="Ouvre l'offre originale sur ${job.source || "la source"}">🔗 Voir l'offre</a>
         </div>
       </div>
     `;
@@ -130,7 +132,6 @@
         <div>Bonus: ${job.score_bonus}/8</div>
       </div>
       <div class="flex flex-wrap gap-2 mt-5">
-        <a href="${job.job_url}" target="_blank" rel="noopener" class="btn-ghost">Voir l'offre</a>
         <button class="btn-primary" data-action="generate" data-id="${job.id}">📥 Generer CV &amp; LM</button>
         <button class="btn-success" data-action="apply" data-id="${job.id}" ${job.status !== "new" ? "disabled" : ""}>
           ${job.status !== "new" ? "✅ Candidate" : "Marquer candidate"}
@@ -139,6 +140,14 @@
       <div id="modal-downloads" class="flex gap-2 mt-3 ${job.cv_adapted_path ? "" : "hidden"}">
         <a class="btn-ghost" href="${Api.downloadCvUrl(job.id)}">⬇️ CV (PDF)</a>
         <a class="btn-ghost" href="${Api.downloadLetterUrl(job.id)}">⬇️ Lettre (DOCX)</a>
+      </div>
+      <div class="link-box mt-4">
+        <div class="link-box-title">🔗 OFFRE ORIGINALE</div>
+        <div class="text-xs text-slate-500 mb-2">Source : ${job.source || "-"} | Trouvee le ${job.date_found}</div>
+        <div class="flex flex-wrap gap-2">
+          <a class="btn-primary" href="${job.job_url}" target="_blank" rel="noopener">Consulter l'offre</a>
+          <button class="btn-ghost" data-action="copy-link" data-url="${job.job_url}">Copier le lien</button>
+        </div>
       </div>
     `;
     modal.classList.remove("hidden");
@@ -181,16 +190,52 @@
     }
   }
 
+  async function handleCopyLink(url) {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast("Lien copie !");
+    } catch (e) {
+      toast("Impossible de copier le lien");
+    }
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async function handleRefresh() {
     const btn = document.getElementById("btn-refresh");
     btn.disabled = true;
-    btn.textContent = "⏳ Scraping…";
+    btn.textContent = "🔄 Scraping en cours…";
     try {
-      const res = await Api.runScrape();
-      toast(`${res.new_jobs} nouvelle(s) offre(s)`);
-      state.page = 1;
-      await loadJobs();
-      await loadStats();
+      const { task_id } = await Api.runScrape();
+
+      let task;
+      while (true) {
+        task = await Api.getScrapeStatus(task_id);
+        if (task.progress) {
+          btn.textContent = `🔄 Scraping (${task.progress.index}/${task.progress.total} sources)…`;
+        }
+        if (task.status === "completed" || task.status === "failed") break;
+        await sleep(1200);
+      }
+
+      if (task.status === "completed") {
+        const sourcesOk = task.run_log
+          ? Object.values(task.run_log.sources).filter((s) => !s.error).length
+          : 0;
+        const sourcesTotal = task.run_log ? Object.keys(task.run_log.sources).length : 0;
+        if (task.run_log && sourcesOk < sourcesTotal) {
+          toast(`⚠️ ${task.new_jobs} offre(s) trouvee(s) - ${sourcesOk}/${sourcesTotal} sources ok`);
+        } else {
+          toast(`✅ ${task.new_jobs} offre(s) trouvee(s) !`);
+        }
+        state.page = 1;
+        await loadJobs();
+        await loadStats();
+      } else {
+        toast(`⚠️ Scraping echoue : ${task.error || "erreur inconnue"}`);
+      }
     } catch (e) {
       toast(`Erreur : ${e.message}`);
     } finally {
@@ -252,6 +297,8 @@
         handleGenerate(jobId, el);
       } else if (el.dataset.action === "apply") {
         handleApply(jobId);
+      } else if (el.dataset.action === "copy-link") {
+        handleCopyLink(el.dataset.url);
       }
     });
   }

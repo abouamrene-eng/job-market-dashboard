@@ -1,5 +1,9 @@
 """Flask backend for Amine's Job Market Dashboard."""
+import logging
 import os
+import threading
+import time
+import uuid
 from datetime import date
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -13,8 +17,20 @@ from letter_generator import generate_letter
 from scorer import score_job
 from config import DATA_DIR, EXPORT_DIR
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("app")
+
 app = Flask(__name__)
 CORS(app)
+
+# In-memory tracking for background scraping runs. Fine for a single-process
+# deployment (this app's Procfile pins --workers 1); status is lost on
+# restart, which is an acceptable trade-off for a personal tool.
+SCRAPE_TASKS = {}
+MAX_DAILY_RETRIES = 2  # 7h -> 8h -> 9h
 
 
 def ensure_dirs():
@@ -22,9 +38,18 @@ def ensure_dirs():
     os.makedirs(EXPORT_DIR, exist_ok=True)
 
 
-def scrape_and_score(min_results=6):
-    """Runs the scrapers, scores every new job, and stores it."""
-    jobs = scraper.run_daily_scrape(min_results=min_results)
+def seed_if_empty():
+    """Fast, network-free seed so the dashboard has content immediately at
+    boot. The real multi-source scrape only ever runs via an explicit
+    refresh or the daily cron - never blocking app startup."""
+    if db.count_jobs() == 0:
+        for job in scraper.generate_seed_jobs(8):
+            job.update(score_job(job))
+            db.upsert_job(job)
+        logger.info("Seeded empty database with demo postings")
+
+
+def _store_jobs(jobs):
     inserted = 0
     for job in jobs:
         job.update(score_job(job))
@@ -32,6 +57,65 @@ def scrape_and_score(min_results=6):
         if job_id:
             inserted += 1
     return inserted
+
+
+def scrape_and_score(min_results=6, progress_cb=None):
+    """Runs every scraper, scores and stores the results. Returns
+    (inserted_count, run_log)."""
+    jobs, run_log = scraper.run_daily_scrape(min_results=min_results, progress_cb=progress_cb)
+    inserted = _store_jobs(jobs)
+    return inserted, run_log
+
+
+def _run_scrape_task(task_id):
+    task = SCRAPE_TASKS[task_id]
+
+    def progress_cb(source_name, index, total):
+        task["progress"] = {"source": source_name, "index": index, "total": total}
+
+    try:
+        inserted, run_log = scrape_and_score(progress_cb=progress_cb)
+        task.update(
+            status="completed",
+            finished_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+            new_jobs=inserted,
+            run_log=run_log,
+        )
+    except Exception as e:
+        logger.error("Scraping task %s failed: %s", task_id, e, exc_info=True)
+        task.update(
+            status="failed",
+            finished_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+            error=str(e),
+        )
+
+
+def _schedule_daily_retry(attempt):
+    from datetime import datetime, timedelta
+    retry_at = datetime.now() + timedelta(hours=1)
+    _scheduler.add_job(
+        _daily_scrape_job, "date", run_date=retry_at,
+        kwargs={"attempt": attempt},
+        id=f"daily_scrape_retry_{attempt}",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+
+def _daily_scrape_job(attempt=1):
+    """Scheduled scrape with a retry fallback: if the run raises or finds
+    nothing at all, try again an hour later, up to MAX_DAILY_RETRIES times
+    (7h -> 8h -> 9h)."""
+    try:
+        inserted, run_log = scrape_and_score()
+        logger.info("Daily scrape (attempt %d) inserted %d jobs", attempt, inserted)
+        if inserted == 0 and attempt <= MAX_DAILY_RETRIES:
+            logger.warning("Daily scrape found nothing, retrying in 1h (attempt %d)", attempt + 1)
+            _schedule_daily_retry(attempt + 1)
+    except Exception as e:
+        logger.error("Daily scrape (attempt %d) failed: %s", attempt, e, exc_info=True)
+        if attempt <= MAX_DAILY_RETRIES:
+            _schedule_daily_retry(attempt + 1)
 
 
 # ---------------------------------------------------------------------------
@@ -159,29 +243,60 @@ def api_insights():
 
 
 # ---------------------------------------------------------------------------
-# API - manual refresh (triggers the scraper on demand)
+# API - manual refresh (async: kicks off scraping in the background and
+# returns immediately, per the improvement spec's non-blocking requirement)
 # ---------------------------------------------------------------------------
 @app.route("/api/scrape/run", methods=["POST"])
 def api_scrape_run():
-    inserted = scrape_and_score()
-    return jsonify({"success": True, "new_jobs": inserted})
+    try:
+        task_id = str(uuid.uuid4())
+        SCRAPE_TASKS[task_id] = {
+            "status": "running",
+            "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "progress": None,
+            "run_log": None,
+            "new_jobs": None,
+            "error": None,
+        }
+        thread = threading.Thread(target=_run_scrape_task, args=(task_id,), daemon=True)
+        thread.start()
+        return jsonify({
+            "success": True,
+            "status": "scraping_in_progress",
+            "task_id": task_id,
+            "message": "Scraping demarre - suivez /api/scrape/status/<task_id>",
+        }), 202
+    except Exception as e:
+        logger.error("Failed to start refresh: %s", e, exc_info=True)
+        return jsonify({"success": False, "error": "Scraping failed to start", "details": str(e)}), 500
+
+
+@app.route("/api/scrape/status/<task_id>")
+def api_scrape_status(task_id):
+    task = SCRAPE_TASKS.get(task_id)
+    if not task:
+        return jsonify({"error": "unknown_task"}), 404
+    return jsonify({"task_id": task_id, **task})
 
 
 # ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
+_scheduler = None
+
+
 def start_scheduler():
-    scheduler = BackgroundScheduler(daemon=True)
-    scheduler.add_job(scrape_and_score, "cron", hour=7, minute=0, id="daily_scrape")
-    scheduler.start()
-    return scheduler
+    global _scheduler
+    _scheduler = BackgroundScheduler(daemon=True)
+    _scheduler.add_job(_daily_scrape_job, "cron", hour=7, minute=0, id="daily_scrape")
+    _scheduler.start()
+    return _scheduler
 
 
 def create_app():
     ensure_dirs()
     db.init_db()
-    if db.count_jobs() == 0:
-        scrape_and_score()
+    seed_if_empty()
     return app
 
 

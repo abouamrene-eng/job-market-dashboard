@@ -51,6 +51,9 @@ const Api = (() => {
     runScrape() {
       return request("/api/scrape/run", { method: "POST" });
     },
+    getScrapeStatus(taskId) {
+      return request(`/api/scrape/status/${taskId}`);
+    },
     downloadCvUrl(id) {
       return `/api/jobs/${id}/download-cv`;
     },

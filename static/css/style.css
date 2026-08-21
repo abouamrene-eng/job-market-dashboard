@@ -110,6 +110,28 @@
 }
 .btn-ghost:hover { background: #e2e8f0; }
 
+.link-btn {
+  color: #64748b;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.4rem;
+  text-decoration: underline;
+  align-self: center;
+}
+.link-btn:hover { color: var(--navy); }
+
+.link-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 0.9rem 1rem;
+}
+.link-box-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 0.3rem;
+}
+
 .pagination-btn {
   background: white;
   border: 1px solid #e2e8f0;

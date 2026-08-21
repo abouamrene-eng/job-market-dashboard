@@ -152,6 +152,22 @@ SEARCH_KEYWORDS = [
     "Product Owner", "AMOA", "Programme Manager", "Agile", "Transformation",
 ]
 
+# Maps each sector filter checkbox to the keywords it should match against
+# (sector + title + description). Real postings (e.g. France Travail's
+# secteurActiviteLibelle) use much more granular/varied wording than the
+# 6 checkboxes, so an exact match on `sector` alone would miss almost
+# everything - this is a fuzzy, best-effort grouping instead.
+SECTOR_FILTER_KEYWORDS = {
+    "Conseil": ["conseil", "consulting"],
+    "Tech": ["tech", "informatique", "logiciel", "digital", "numerique",
+              "numérique", "software", "saas", "programmation", "editeur"],
+    "Industrie": ["industrie", "industriel", "ingenierie", "ingénierie",
+                   "manufactur", "aeronautique", "aéronautique", "production"],
+    "Energie": ["energie", "énergie", "utilities", "environnement"],
+    "Finance": ["finance", "banque", "bancaire", "financier"],
+    "Insurtech": ["assurance", "insurtech", "mutuelle"],
+}
+
 NOTABLE_COMPANIES = {
     "cac40_fortune500_gafam": [
         "airbus", "air france", "bnp paribas", "societe generale", "axa",

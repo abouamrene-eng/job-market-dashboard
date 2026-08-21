@@ -8,7 +8,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import date, datetime
 
-from config import DB_PATH
+from config import DB_PATH, SECTOR_FILTER_KEYWORDS
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -126,9 +126,17 @@ def get_jobs(
         query += " AND date_found = ?"
         params.append(date_found)
     if sector:
-        placeholders = ",".join("?" for _ in sector)
-        query += f" AND sector IN ({placeholders})"
-        params.extend(sector)
+        # Fuzzy match: real posting sector text is far more varied than
+        # the filter checkboxes, so match keywords against sector, title
+        # and description rather than requiring an exact `sector` value.
+        sector_clauses = []
+        for sel in sector:
+            for kw in SECTOR_FILTER_KEYWORDS.get(sel, [sel.lower()]):
+                sector_clauses.append(
+                    "(LOWER(sector) LIKE ? OR LOWER(job_title) LIKE ? OR LOWER(job_description) LIKE ?)"
+                )
+                params.extend([f"%{kw.lower()}%"] * 3)
+        query += f" AND ({' OR '.join(sector_clauses)})"
     if min_salary:
         query += " AND (salary_max IS NULL OR salary_max >= ?)"
         params.append(min_salary)

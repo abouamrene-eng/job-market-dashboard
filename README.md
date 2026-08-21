@@ -69,6 +69,13 @@ survit aux redeploiements.
    export SUPABASE_URL="https://xxxxx.supabase.co"
    export SUPABASE_SERVICE_KEY="..."
    ```
+   Les noms doivent correspondre exactement (`SUPABASE_URL`,
+   `SUPABASE_SERVICE_KEY`) - une variable mal nommee ou une valeur avec des
+   guillemets/espaces colles par erreur echoue silencieusement (le suivi
+   continue de fonctionner localement mais ne persiste plus, sans erreur
+   visible). Pour verifier que c'est bien pris en compte : marquez une offre
+   "candidate", puis controlez que la table `job_tracking` dans Supabase a
+   bien une nouvelle ligne.
 
 Sans ces identifiants, le suivi fonctionne normalement mais uniquement
 tant que le processus tourne - il repart a zero au prochain redeploiement

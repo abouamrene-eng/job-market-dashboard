@@ -1,14 +1,14 @@
 """Flask backend for Amine's Job Market Dashboard."""
 import logging
 import os
+import secrets
 import threading
 import time
 import uuid
 from datetime import date
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask, jsonify, request, send_file, render_template
-from flask_cors import CORS
+from flask import Flask, Response, jsonify, request, send_file, render_template
 
 import database as db
 import scraper
@@ -24,7 +24,38 @@ logging.basicConfig(
 logger = logging.getLogger("app")
 
 app = Flask(__name__)
-CORS(app)
+
+# This app is entirely single-origin (Flask serves both the frontend and the
+# API), so there is no legitimate cross-origin use case - Flask-CORS was
+# unused surface area, dropped rather than configured.
+
+DASHBOARD_USER = os.environ.get("DASHBOARD_USER", "amine")
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD")
+
+if not DASHBOARD_PASSWORD:
+    logger.warning(
+        "DASHBOARD_PASSWORD is not set - the app is running with NO "
+        "authentication. Fine for local dev, never for a public deployment: "
+        "this app serves personal contact details in generated CVs and lets "
+        "anyone trigger scraping."
+    )
+
+
+@app.before_request
+def require_auth():
+    if not DASHBOARD_PASSWORD:
+        return  # local dev convenience only - see warning above
+    auth = request.authorization
+    valid = (
+        auth is not None
+        and secrets.compare_digest(auth.username, DASHBOARD_USER)
+        and secrets.compare_digest(auth.password, DASHBOARD_PASSWORD)
+    )
+    if not valid:
+        return Response(
+            "Authentification requise.", 401,
+            {"WWW-Authenticate": 'Basic realm="Job Dashboard"'},
+        )
 
 # In-memory tracking for background scraping runs. Fine for a single-process
 # deployment (this app's Procfile pins --workers 1); status is lost on

@@ -36,10 +36,13 @@ const Api = (() => {
         body: JSON.stringify({ status, date: new Date().toISOString().slice(0, 10) }),
       });
     },
-    setStatus(id, status) {
+    setStatus(id, status, notes) {
+      const body = {};
+      if (status !== undefined) body.status = status;
+      if (notes !== undefined) body.notes = notes;
       return request(`/api/jobs/${id}/status`, {
         method: "POST",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(body),
       });
     },
     getDailyStats() {

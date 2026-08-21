@@ -21,12 +21,13 @@
 
   function jobCard(job) {
     const tier = scoreTier(job.score);
-    const isApplied = job.status !== "new";
+    const isTracked = job.status !== "new";
     return `
       <div class="job-card ${tier}" data-id="${job.id}">
         <div class="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <span class="score-badge ${tier}">⭐ ${Math.round(job.score)}/100</span>
+            ${isTracked ? `<span class="status-pill status-${job.status}">${STATUS_LABELS[job.status] || job.status}</span>` : ""}
             <h3 class="text-base font-semibold text-navy mt-2">${job.job_title}</h3>
             <div class="text-sm text-slate-500 mt-0.5">
               🏢 ${job.company} &nbsp;|&nbsp; 💰 ${fmtSalary(job.salary_min, job.salary_max)}
@@ -39,8 +40,8 @@
         <div class="flex flex-wrap gap-2 mt-4">
           <button class="btn-ghost" data-action="details" data-id="${job.id}">Details</button>
           <button class="btn-primary" data-action="generate" data-id="${job.id}">📥 Generer CV &amp; LM</button>
-          <button class="btn-success" data-action="apply" data-id="${job.id}" ${isApplied ? "disabled" : ""}>
-            ${isApplied ? "✅ Candidate" : "Marquer candidate"}
+          <button class="btn-success" data-action="apply" data-id="${job.id}" ${job.status !== "new" ? "disabled" : ""}>
+            ${job.status !== "new" ? "✅ Candidate" : "Marquer candidate"}
           </button>
           <a class="link-btn" href="${job.job_url}" target="_blank" rel="noopener"
              title="Ouvre l'offre originale sur ${job.source || "la source"}">🔗 Voir l'offre</a>
@@ -115,6 +116,24 @@
     setTimeout(() => el.classList.remove("show"), 2500);
   }
 
+  const STATUS_LABELS = {
+    new: "Non candidate",
+    applied: "Candidate",
+    interview: "Entretien",
+    offer: "Offre",
+    rejected: "Refuse",
+  };
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str || "";
+    return div.innerHTML;
+  }
+
+  function statusOption(value, current) {
+    return `<option value="${value}" ${value === current ? "selected" : ""}>${STATUS_LABELS[value]}</option>`;
+  }
+
   function openModal(job) {
     const modal = document.getElementById("job-modal");
     document.getElementById("modal-content").innerHTML = `
@@ -133,14 +152,25 @@
       </div>
       <div class="flex flex-wrap gap-2 mt-5">
         <button class="btn-primary" data-action="generate" data-id="${job.id}">📥 Generer CV &amp; LM</button>
-        <button class="btn-success" data-action="apply" data-id="${job.id}" ${job.status !== "new" ? "disabled" : ""}>
-          ${job.status !== "new" ? "✅ Candidate" : "Marquer candidate"}
-        </button>
       </div>
       <div id="modal-downloads" class="flex gap-2 mt-3 ${job.cv_adapted_path ? "" : "hidden"}">
         <a class="btn-ghost" href="${Api.downloadCvUrl(job.id)}">⬇️ CV (PDF)</a>
         <a class="btn-ghost" href="${Api.downloadLetterUrl(job.id)}">⬇️ Lettre (DOCX)</a>
       </div>
+
+      <div class="link-box mt-4">
+        <div class="link-box-title">📌 SUIVI DE CANDIDATURE</div>
+        <div class="flex flex-wrap items-center gap-2 mb-2">
+          <select id="modal-status-select" class="border rounded-md px-2 py-1.5 text-sm">
+            ${Object.keys(STATUS_LABELS).map((s) => statusOption(s, job.status)).join("")}
+          </select>
+          ${job.date_applied ? `<span class="text-xs text-slate-400">Candidate le ${job.date_applied}</span>` : ""}
+        </div>
+        <textarea id="modal-notes" rows="3" class="w-full border rounded-md px-2 py-1.5 text-sm"
+          placeholder="Notes personnelles (entretien prevu, contact, feedback...)">${escapeHtml(job.notes)}</textarea>
+        <button class="btn-primary mt-2" data-action="save-status" data-id="${job.id}">Enregistrer le suivi</button>
+      </div>
+
       <div class="link-box mt-4">
         <div class="link-box-title">🔗 OFFRE ORIGINALE</div>
         <div class="text-xs text-slate-500 mb-2">Source : ${job.source || "-"} | Trouvee le ${job.date_found}</div>
@@ -247,6 +277,27 @@
       await loadStats();
     } catch (e) {
       toast(`Erreur : ${e.message}`);
+    }
+  }
+
+  async function handleSaveStatus(jobId, btn) {
+    const status = document.getElementById("modal-status-select").value;
+    const notes = document.getElementById("modal-notes").value;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Enregistrement…";
+    try {
+      await Api.setStatus(jobId, status, notes);
+      toast("Suivi enregistre ✅");
+      const job = await Api.getJob(jobId);
+      openModal(job);
+      await loadJobs();
+      await loadStats();
+    } catch (e) {
+      toast(`Erreur : ${e.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
     }
   }
 
@@ -360,6 +411,8 @@
         handleApply(jobId);
       } else if (el.dataset.action === "copy-link") {
         handleCopyLink(el.dataset.url);
+      } else if (el.dataset.action === "save-status") {
+        handleSaveStatus(jobId, el);
       }
     });
   }

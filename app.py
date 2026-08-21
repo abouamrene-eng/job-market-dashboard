@@ -304,20 +304,38 @@ def api_apply(job_id):
     return jsonify({"success": True})
 
 
+VALID_STATUSES = {"new", "applied", "interview", "offer", "rejected"}
+
+
 @app.route("/api/jobs/<job_id>/status", methods=["POST"])
 def api_update_status(job_id):
-    """Generic status update (e.g. interview, offer, rejected, archived)."""
+    """Generic status update - the full candidacy lifecycle (new -> applied
+    -> interview -> offer/rejected), plus free-text notes."""
     job = db.get_job(job_id)
     if not job:
         return jsonify({"error": "not_found"}), 404
     body = request.get_json(silent=True) or {}
     fields = {}
     if "status" in body:
-        fields["status"] = body["status"]
+        status = body["status"]
+        if status not in VALID_STATUSES:
+            return jsonify({"error": "invalid_status", "allowed": sorted(VALID_STATUSES)}), 400
+        fields["status"] = status
+        # First time a job is marked applied (not already dated), record
+        # the date automatically - same behavior as the quick "Marquer
+        # candidate" button on the card, so it stays consistent whichever
+        # path was used to set it.
+        if status == "applied" and not job.get("date_applied"):
+            fields["date_applied"] = date.today().isoformat()
     if "notes" in body:
         fields["notes"] = body["notes"]
     db.update_job(job_id, **fields)
-    tracking_store.upsert_tracking(job["job_url"], status=fields.get("status"), notes=fields.get("notes"))
+    tracking_store.upsert_tracking(
+        job["job_url"],
+        status=fields.get("status"),
+        date_applied=fields.get("date_applied"),
+        notes=fields.get("notes"),
+    )
     return jsonify({"success": True})
 
 

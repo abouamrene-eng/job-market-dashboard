@@ -205,3 +205,17 @@
 @media (max-width: 480px) {
   .insight-row { grid-template-columns: 6rem 1fr 6rem; font-size: 0.75rem; }
 }
+
+.status-pill {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+}
+.status-pill.status-applied { background: #dbeafe; color: #1d4ed8; }
+.status-pill.status-interview { background: #fef3c7; color: #92400e; }
+.status-pill.status-offer { background: #dcfce7; color: #15803d; }
+.status-pill.status-rejected { background: #f1f5f9; color: #64748b; }

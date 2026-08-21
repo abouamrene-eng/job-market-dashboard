@@ -35,6 +35,7 @@ import time
 import unicodedata
 import urllib.parse
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 
 import requests
@@ -50,10 +51,12 @@ HEADERS = {
         "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     )
 }
-REQUEST_TIMEOUT = 30       # seconds, per HTTP request
-SOURCE_TIMEOUT_BUDGET = 120  # seconds, soft budget per source (see _within_budget)
-MAX_RETRIES = 3
-BACKOFF_BASE = 2  # seconds: 2, 4, 8
+REQUEST_TIMEOUT = 20       # seconds, per HTTP request
+SOURCE_TIMEOUT_BUDGET = 60   # seconds, soft budget per source - sources run in
+                              # parallel now, so this bounds the whole run's
+                              # wall-clock time, not just one source's share of it
+MAX_RETRIES = 2
+BACKOFF_BASE = 2  # seconds: 2, (4 on a 3rd attempt if MAX_RETRIES is raised)
 
 ALLOWED_SOURCES = {
     "France Travail", "Indeed", "LinkedIn", "WTTJ", "Glassdoor", "Consulting.fr",
@@ -737,71 +740,96 @@ def generate_seed_jobs(n=8):
     return jobs
 
 
-def run_daily_scrape(min_results=6, progress_cb=None):
-    """Runs every source (with retry/backoff/error-handling), validates
-    and deduplicates the results, tops up with seed data if needed, and
-    returns (jobs, run_log). run_log mirrors the per-source counters the
-    improvement spec asks for logged (found/duplicates/saved/errors) and
-    is what the async refresh endpoint exposes as progress.
+def _run_one_source(source_fn):
+    """Runs a single source across all keywords, bounded by
+    SOURCE_TIMEOUT_BUDGET. Pure I/O + local list building - safe to call
+    from a worker thread, touches no shared state."""
+    source_name = source_fn.__name__.replace("scrape_", "")
+    jobs = []
+    error = None
+    try:
+        started = time.time()
+        for keyword in SEARCH_KEYWORDS:
+            if time.time() - started > SOURCE_TIMEOUT_BUDGET:
+                logger.warning("%s: exceeded %ds budget, moving on", source_name, SOURCE_TIMEOUT_BUDGET)
+                break
+            jobs.extend(source_fn(keyword))
+    except Exception as e:
+        error = str(e)
+        logger.error("%s: unhandled error: %s", source_name, e, exc_info=True)
+    return source_name, jobs, error
 
-    progress_cb(source_name, index, total), if given, is called before
-    each source runs - lets the caller (the async refresh endpoint) report
-    "scraping en cours (3/9 sources)" back to the frontend.
+
+def run_daily_scrape(min_results=6, progress_cb=None):
+    """Runs every source concurrently (with retry/backoff/error-handling
+    per source), validates and deduplicates the results, tops up with
+    seed data if needed, and returns (jobs, run_log). run_log mirrors the
+    per-source counters the improvement spec asks for logged
+    (found/duplicates/saved/errors) and is what the async refresh
+    endpoint exposes as progress.
+
+    Sources run in parallel (ThreadPoolExecutor) rather than sequentially:
+    they hit entirely different domains, so there is no shared rate limit
+    to protect by serializing them, and in practice France Travail answers
+    in seconds while most secondary sources spend most of a run retrying
+    against a site that blocks them regardless - sequentially, that adds
+    up to minutes for zero benefit. Validation/dedup/logging still run
+    single-threaded afterward, so there is no concurrent access to the
+    shared seen-jobs state.
+
+    progress_cb(source_name, completed, total), if given, is called as
+    each source finishes (not in a fixed order) - lets the caller (the
+    async refresh endpoint) report "scraping en cours (3/9 sources)" back
+    to the frontend.
     """
     run_log = {
         "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "sources": {},
     }
-    logger.info("Starting scraping run")
+    logger.info("Starting scraping run (%d sources in parallel)", len(SOURCES))
 
     seen_urls = set()
     seen_title_company = set()
     all_valid_jobs = []
 
-    total_sources = len(SOURCES)
-    for i, source_fn in enumerate(SOURCES, start=1):
+    raw_results = {}
+    with ThreadPoolExecutor(max_workers=len(SOURCES)) as pool:
+        futures = {pool.submit(_run_one_source, fn): fn for fn in SOURCES}
+        completed = 0
+        for future in as_completed(futures):
+            source_name, source_jobs, error = future.result()
+            raw_results[source_name] = (source_jobs, error)
+            completed += 1
+            if progress_cb:
+                progress_cb(source_name, completed, len(SOURCES))
+
+    # Validation, dedup and logging happen here, single-threaded, in a
+    # stable source order - identical behavior to the old sequential loop.
+    for source_fn in SOURCES:
         source_name = source_fn.__name__.replace("scrape_", "")
-        if progress_cb:
-            progress_cb(source_name, i, total_sources)
-
+        source_jobs, error = raw_results[source_name]
         found = duplicates = validated = rejected = 0
-        error = None
-        try:
-            source_jobs = []
-            source_started = time.time()
-            for keyword in SEARCH_KEYWORDS:
-                if time.time() - source_started > SOURCE_TIMEOUT_BUDGET:
-                    logger.warning(
-                        "%s: exceeded %ds budget, moving on with %d keyword(s) left",
-                        source_name, SOURCE_TIMEOUT_BUDGET,
-                        len(SEARCH_KEYWORDS) - SEARCH_KEYWORDS.index(keyword),
-                    )
-                    break
-                source_jobs.extend(source_fn(keyword))
-            found = len(source_jobs)
 
-            for job in source_jobs:
-                job = _clean_job(job)
-                ok, reason = validate_job(job)
-                if not ok:
-                    rejected += 1
-                    logger.info("rejected job from %s: %s", source_name, reason)
-                    continue
+        for job in source_jobs:
+            job = _clean_job(job)
+            ok, reason = validate_job(job)
+            if not ok:
+                rejected += 1
+                logger.info("rejected job from %s: %s", source_name, reason)
+                continue
 
-                url_key = _normalize_url(job["job_url"])
-                title_company_key = (job["job_title"].strip().lower(), job["company"].strip().lower())
-                if url_key in seen_urls or title_company_key in seen_title_company:
-                    duplicates += 1
-                    continue
+            url_key = _normalize_url(job["job_url"])
+            title_company_key = (job["job_title"].strip().lower(), job["company"].strip().lower())
+            if url_key in seen_urls or title_company_key in seen_title_company:
+                duplicates += 1
+                continue
 
-                seen_urls.add(url_key)
-                seen_title_company.add(title_company_key)
-                validated += 1
-                all_valid_jobs.append(job)
-        except Exception as e:
-            error = str(e)
-            logger.error("%s: unhandled error: %s", source_name, e, exc_info=True)
+            seen_urls.add(url_key)
+            seen_title_company.add(title_company_key)
+            validated += 1
+            all_valid_jobs.append(job)
 
+        found = len(source_jobs)
         run_log["sources"][source_name] = {
             "found": found, "duplicates": duplicates,
             "saved": validated, "rejected": rejected, "error": error,
@@ -809,9 +837,6 @@ def run_daily_scrape(min_results=6, progress_cb=None):
         logger.info("%s: %d found, %d duplicates, %d saved, %d rejected%s",
                      source_name, found, duplicates, validated, rejected,
                      f" - ERROR: {error}" if error else "")
-
-        # Be polite to whichever source just answered before hitting the next one.
-        time.sleep(random.uniform(1, 3))
 
     if len(all_valid_jobs) < min_results:
         needed = min_results - len(all_valid_jobs)

@@ -246,10 +246,15 @@ def get_daily_stats(day=None):
 def get_insights():
     with get_conn() as conn:
         salary_by_sector = conn.execute(
-            """SELECT sector, AVG((COALESCE(salary_min,0)+COALESCE(salary_max,0))/2.0) avg_salary,
+            """SELECT sector, AVG((COALESCE(salary_min,salary_max)+COALESCE(salary_max,salary_min))/2.0) avg_salary,
                       COUNT(*) count
-               FROM jobs WHERE sector IS NOT NULL AND sector != ''
-               GROUP BY sector ORDER BY avg_salary DESC"""
+               FROM jobs
+               WHERE sector IS NOT NULL AND sector != ''
+                     AND (salary_min IS NOT NULL OR salary_max IS NOT NULL)
+               GROUP BY sector
+               HAVING COUNT(*) >= 2
+               ORDER BY avg_salary DESC
+               LIMIT 12"""
         ).fetchall()
         top_companies = conn.execute(
             """SELECT company, COUNT(*) count, AVG(score) avg_score

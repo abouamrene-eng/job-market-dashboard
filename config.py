@@ -7,7 +7,7 @@ absolute dates - double check them (LINKEDIN_URL, certifications,
 education "projects") before sending a real application.
 """
 
-LINKEDIN_URL = "[LinkedIn a renseigner]"
+LINKEDIN_URL = "linkedin.com/in/aminebouamrene"
 
 CANDIDATE = {
     "name": "Amine Bouamrene",

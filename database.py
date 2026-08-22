@@ -6,7 +6,7 @@ use - no external database server required.
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from config import DB_PATH, SECTOR_FILTER_KEYWORDS
 
@@ -218,9 +218,13 @@ def delete_jobs_by_source(source: str, exclude_applied: bool = True):
 
 def get_daily_stats(day=None):
     day = day or date.today().isoformat()
+    yesterday = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
     with get_conn() as conn:
         total = conn.execute(
             "SELECT COUNT(*) c FROM jobs WHERE date_found = ?", (day,)
+        ).fetchone()["c"]
+        total_yesterday = conn.execute(
+            "SELECT COUNT(*) c FROM jobs WHERE date_found = ?", (yesterday,)
         ).fetchone()["c"]
         avg_salary_row = conn.execute(
             """SELECT AVG((COALESCE(salary_min,0) + COALESCE(salary_max,0)) / 2.0) a
@@ -228,6 +232,11 @@ def get_daily_stats(day=None):
             (day,),
         ).fetchone()
         avg_salary = round(avg_salary_row["a"] or 0)
+        market_median_row = conn.execute(
+            """SELECT AVG((COALESCE(salary_min,0) + COALESCE(salary_max,0)) / 2.0) a
+               FROM jobs WHERE salary_min IS NOT NULL OR salary_max IS NOT NULL"""
+        ).fetchone()
+        market_median = round(market_median_row["a"] or 0)
         top_matches = conn.execute(
             "SELECT COUNT(*) c FROM jobs WHERE date_found = ? AND score > 75",
             (day,),
@@ -235,11 +244,17 @@ def get_daily_stats(day=None):
         applied = conn.execute(
             "SELECT COUNT(*) c FROM jobs WHERE date_applied = ?", (day,)
         ).fetchone()["c"]
+        applied_total = conn.execute(
+            "SELECT COUNT(*) c FROM jobs WHERE status != 'new'"
+        ).fetchone()["c"]
         return {
             "total_jobs": total,
+            "total_jobs_delta": total - total_yesterday,
             "avg_salary": avg_salary,
+            "market_median_salary": market_median,
             "top_matches": top_matches,
             "applied": applied,
+            "applied_total": applied_total,
         }
 
 

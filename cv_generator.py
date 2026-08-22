@@ -1,90 +1,84 @@
-"""Adapts Amine's CV to a given job posting and renders it as a 1-page PDF.
+"""Renders Amine's real CV (per cv_identity_guide.py / templates/cv_template.html)
+adapted to a job posting: the role variant (AMOA / PM / Aero) is auto-detected
+from the posting's title+description, and the ATS-safe single-column layout
+is used since these CVs are meant for job-board applications.
 
-The headline title, executive summary and highlighted achievements switch
-based on keywords found in the job title/description (see ROLE_PROFILES
-below); experiences are reordered by relevance and their bullet points are
-trimmed so the most relevant one keeps the most detail while older/less
-relevant roles stay compact - the whole document is built to fit one page.
-Matched job keywords are bolded inline for ATS/human skimmability.
+Primary path: Jinja2 -> HTML -> weasyprint -> PDF. weasyprint depends on
+native libraries (Pango/Cairo) that may not be present on every deploy
+target; if it fails to import or to render, we fall back to the older
+reportlab-based generator (role-adaptive keyword bolding, 1-page budget) so
+CV generation never breaks in production.
 """
 import os
 import re
 import unicodedata
+from datetime import date
 
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import inch
-from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate
+from jinja2 import Environment, FileSystemLoader
 
-from config import CANDIDATE, EXPORT_DIR
+import cv_identity_guide as guide
+from config import EXPORT_DIR
 
-NAVY = colors.HexColor("#1a365d")
-GREY = colors.HexColor("#555555")
+TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates")
+_env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
 
-# Reportlab's built-in fonts don't include Calibri/Arial TTFs; Helvetica is
-# the closest built-in metric-compatible substitute for Arial.
-FONT = "Helvetica"
-FONT_BOLD = "Helvetica-Bold"
 
-ROLE_PROFILES = [
-    {
-        "match": ["aeronautique", "aéronautique", "aerospace", "defense", "défense", "aviation"],
-        "title": "Senior Product Owner | ENAC | Aerospace & Defense",
-        "summary": (
-            "Ingenieur ENAC avec 3 ans d'experience en pilotage de solutions digitales "
-            "complexes (7 000 utilisateurs). Background technique unique en systemes "
-            "critiques (avionique, C/C++) combine a une expertise Product Management et "
-            "transformation agile (SAFe, PSPO I) - une combinaison rare pour piloter des "
-            "initiatives digitales dans un secteur exigeant en surete de fonctionnement."
-        ),
-    },
-    {
-        "match": ["product owner"],
-        "title": "Senior Product Owner | SAFe & PSPO I Certified",
-        "summary": (
-            "Product Owner avec 3 ans d'experience en pilotage de solutions digitales "
-            "complexes a l'echelle entreprise (7 000 utilisateurs, 3 000 sites). Expert en "
-            "vision produit, redaction de user stories et pilotage agile SAFe/SCRUM. "
-            "Certifie PSPO I. Ingenieur ENAC avec background technique (C/C++, Python)."
-        ),
-    },
-    {
-        "match": ["amoa", "programme manager", "program manager"],
-        "title": "AMOA Consultant | Enterprise Programme Manager",
-        "summary": (
-            "Consultant AMOA avec 3 ans d'experience en pilotage de programmes complexes "
-            "et management d'equipe AMOA/MOE (10 personnes). Expert en conduite du "
-            "changement, gouvernance de la donnee et arbitrage entre besoins metiers et "
-            "contraintes techniques. Certifie SAFe. Ingenieur ENAC."
-        ),
-    },
-    {
-        "match": ["agile coach", "scrum master"],
-        "title": "Agile Coach | SAFe Practitioner",
-        "summary": (
-            "Praticien agile certifie Leading SAFe avec 3 ans d'experience en pilotage de "
-            "ceremonies SCRUM/SAFe a l'echelle et management d'equipe. Expertise en coaching "
-            "d'equipes produit, amelioration de la maturite agile et synchronisation de "
-            "programmes (PI planning, ART). Ingenieur ENAC."
-        ),
-    },
-    {
-        "match": ["transformation"],
-        "title": "Digital Transformation Consultant",
-        "summary": (
-            "Consultant en transformation digitale avec 3 ans d'experience en pilotage "
-            "d'une solution GMAO deployee a l'echelle nationale (7 000 utilisateurs). Expert "
-            "en conduite du changement, optimisation de processus et gestion de la donnee. "
-            "Certifie SAFe & PSPO I. Ingenieur ENAC."
-        ),
-    },
-]
-DEFAULT_PROFILE = {
-    "title": CANDIDATE["title_default"],
-    "summary": CANDIDATE["profile_summary_default"],
-}
+def _slugify(text: str) -> str:
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    text = re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_")
+    return text or "Company"
 
+
+def _variant_experiences(variant: str) -> list:
+    return [exp for exp in guide.EXPERIENCES if exp["variant"] in (None, variant)]
+
+
+def render_cv_html(job: dict, mode: str = "ats", variant: str = None) -> str:
+    variant = variant or guide.detect_variant(job)
+    template = _env.get_template("cv_template.html")
+    return template.render(
+        mode=mode,
+        variant=variant,
+        c=guide.CONTACT,
+        v=guide.VARIANTS[variant],
+        sidebar=guide.SIDEBAR,
+        impact=guide.IMPACT,
+        experiences=_variant_experiences(variant),
+        formation=guide.FORMATION,
+        projects_aero=guide.PROJECTS_AERO,
+    )
+
+
+def _variant_label(variant: str) -> str:
+    return {"amoa": "AMOA", "pm": "Product_Owner", "aero": "Aero"}.get(variant, variant.upper())
+
+
+def _cv_filename(job: dict, variant: str) -> str:
+    month = date.today().strftime("%Y-%m")
+    company = _slugify(job.get("company", "Company"))
+    return f"CV_Amine_Bouamrene_{_variant_label(variant)}_{company}_{month}.pdf"
+
+
+def generate_cv(job: dict, mode: str = "ats") -> str:
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+    variant = guide.detect_variant(job)
+    path = os.path.join(EXPORT_DIR, _cv_filename(job, variant))
+
+    try:
+        from weasyprint import HTML
+        html = render_cv_html(job, mode=mode, variant=variant)
+        HTML(string=html, base_url=TEMPLATE_DIR).write_pdf(path)
+        return path
+    except Exception:
+        return _generate_cv_legacy(job, path)
+
+
+# ---------------------------------------------------------------------------
+# Legacy fallback (reportlab) — used only if weasyprint is unavailable or
+# fails to render (e.g. missing native Pango/Cairo libs on the host). Keeps
+# the same role-detection so the fallback CV still targets the right variant,
+# with inline bolding of the job's own keywords for ATS/human skimmability.
+# ---------------------------------------------------------------------------
 CV_KEYWORD_POOL = [
     "product owner", "amoa", "programme manager", "program manager",
     "agile coach", "scrum master", "product manager", "business analyst",
@@ -95,146 +89,77 @@ CV_KEYWORD_POOL = [
 ]
 
 
-def _slugify(text: str) -> str:
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    text = re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_")
-    return text or "Company"
-
-
-def _job_blob(job: dict) -> str:
-    return f"{job.get('job_title', '')} {job.get('job_description', '')}".lower()
-
-
-def _matched_keywords(blob: str) -> list:
-    return [kw for kw in CV_KEYWORD_POOL if kw in blob]
-
-
-def _bold_matches(text: str, keywords: list) -> str:
-    kws = sorted({k for k in keywords if k}, key=len, reverse=True)
+def _bold_matches(text: str, blob: str) -> str:
+    kws = sorted({k for k in CV_KEYWORD_POOL if k in blob}, key=len, reverse=True)
     if not kws:
         return text
     pattern = re.compile(r"\b(" + "|".join(re.escape(k) for k in kws) + r")\b", re.IGNORECASE)
     return pattern.sub(r"<b>\1</b>", text)
 
 
-def _pick_profile(blob: str) -> dict:
-    for profile in ROLE_PROFILES:
-        if any(kw in blob for kw in profile["match"]):
-            return profile
-    return DEFAULT_PROFILE
+def _generate_cv_legacy(job: dict, path: str) -> str:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (HRFlowable, ListFlowable, ListItem, Paragraph,
+                                     SimpleDocTemplate)
 
+    NAVY = colors.HexColor("#150D49")
+    ACCENT = colors.HexColor("#2B2270")
 
-def _rank_experiences(blob: str) -> list:
-    scored = []
-    for exp in CANDIDATE["experiences"]:
-        overlap = sum(1 for kw in exp["keywords"] if kw in blob)
-        scored.append((overlap, exp))
-    scored.sort(key=lambda pair: pair[0], reverse=True)
-    return [exp for _, exp in scored]
-
-
-def _select_bullets(exp: dict, blob: str, max_bullets: int) -> list:
-    scored = []
-    for i, bullet in enumerate(exp["highlights"]):
-        score = sum(1 for kw in CV_KEYWORD_POOL if kw in blob and kw in bullet.lower())
-        scored.append((score, i, bullet))
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    kept = sorted(scored[:max_bullets], key=lambda item: item[1])
-    return [b for _, _, b in kept]
-
-
-def generate_cv(job: dict) -> str:
-    os.makedirs(EXPORT_DIR, exist_ok=True)
-    blob = _job_blob(job)
-    profile = _pick_profile(blob)
-    matched_keywords = _matched_keywords(blob)
-    ranked_experiences = _rank_experiences(blob)
-    bullet_budget = [5, 3, 2]  # most relevant experience keeps more detail
-
-    filename = f"CV_Amine_{_slugify(job.get('company', 'Company'))}.pdf"
-    path = os.path.join(EXPORT_DIR, filename)
+    blob = f"{job.get('job_title', '')} {job.get('job_description', '')}".lower()
+    variant = guide.detect_variant(job)
+    v = guide.VARIANTS[variant]
+    experiences = _variant_experiences(variant)
 
     styles = getSampleStyleSheet()
-    name_style = ParagraphStyle("Name", parent=styles["Normal"], fontName=FONT_BOLD,
-                                 fontSize=17, textColor=NAVY, leading=20)
-    title_style = ParagraphStyle("RoleTitle", parent=styles["Normal"], fontName=FONT_BOLD,
-                                  fontSize=10.5, textColor=colors.HexColor("#2f855a"), leading=13)
-    contact_line_style = ParagraphStyle("ContactLine", parent=styles["Normal"], fontName=FONT,
-                                         fontSize=8.5, textColor=GREY, spaceAfter=3)
-    section_style = ParagraphStyle("Section", parent=styles["Normal"], fontName=FONT_BOLD,
-                                    fontSize=9.5, textColor=NAVY, spaceBefore=7, spaceAfter=3)
-    body_style = ParagraphStyle("Body", parent=styles["Normal"], fontName=FONT,
-                                 fontSize=9, leading=11.5)
-    bullet_style = ParagraphStyle("Bullet", parent=body_style, leftIndent=10, spaceAfter=1.5)
-    exp_title_style = ParagraphStyle("ExpTitle", parent=styles["Normal"], fontName=FONT_BOLD,
-                                      fontSize=9.5, textColor=NAVY, spaceBefore=5)
-    exp_meta_style = ParagraphStyle("ExpMeta", parent=styles["Normal"], fontName=FONT,
-                                     fontSize=8, textColor=GREY, spaceAfter=2)
+    name_style = ParagraphStyle("Name", parent=styles["Title"], textColor=NAVY, fontSize=20, spaceAfter=2)
+    title_style = ParagraphStyle("RoleTitle", parent=styles["Normal"], textColor=ACCENT, fontSize=12, spaceAfter=10)
+    contact_style = ParagraphStyle("Contact", parent=styles["Normal"], fontSize=9, textColor=colors.grey)
+    section_style = ParagraphStyle("Section", parent=styles["Heading2"], textColor=NAVY, spaceBefore=12, spaceAfter=4)
+    body_style = ParagraphStyle("Body", parent=styles["Normal"], fontSize=10, leading=14)
+    exp_title_style = ParagraphStyle("ExpTitle", parent=styles["Normal"], fontSize=11, textColor=colors.HexColor("#141414"), spaceBefore=8, fontName="Helvetica-Bold")
+    exp_meta_style = ParagraphStyle("ExpMeta", parent=styles["Normal"], fontSize=9, textColor=colors.grey, spaceAfter=4)
 
-    def footer(canvas, doc):
-        canvas.saveState()
-        canvas.setFont(FONT, 7)
-        canvas.setFillColor(GREY)
-        canvas.drawCentredString(A4[0] / 2, 0.4 * inch, "Page 1 of 1")
-        canvas.restoreState()
-
-    doc = SimpleDocTemplate(path, pagesize=A4, topMargin=0.7 * inch, bottomMargin=0.6 * inch,
-                             leftMargin=0.7 * inch, rightMargin=0.7 * inch)
+    doc = SimpleDocTemplate(path, pagesize=A4, topMargin=18 * mm, bottomMargin=15 * mm,
+                             leftMargin=18 * mm, rightMargin=18 * mm)
     story = []
 
-    story.append(Paragraph(CANDIDATE["name"], name_style))
-    story.append(Paragraph(profile["title"], title_style))
+    story.append(Paragraph(guide.CONTACT["name"], name_style))
+    story.append(Paragraph(v["headline"], title_style))
     story.append(Paragraph(
-        f"{CANDIDATE['email']} | {CANDIDATE['phone']} | {CANDIDATE['linkedin']}",
-        contact_line_style,
+        f"{guide.CONTACT['email']} | {guide.CONTACT['phone']} | {guide.CONTACT['linkedin']} | {guide.CONTACT['city']}",
+        contact_style,
     ))
-    story.append(HRFlowable(width="100%", color=NAVY, thickness=1.1, spaceAfter=4))
+    story.append(HRFlowable(width="100%", color=NAVY, thickness=1, spaceBefore=6, spaceAfter=8))
 
-    story.append(Paragraph("PROFIL EXECUTIF", section_style))
-    story.append(Paragraph(_bold_matches(profile["summary"], matched_keywords), body_style))
+    story.append(Paragraph("Profil", section_style))
+    story.append(Paragraph(_bold_matches(v["profile"], blob), body_style))
 
-    story.append(Paragraph("EXPERIENCE PROFESSIONNELLE", section_style))
-    for i, exp in enumerate(ranked_experiences):
-        budget = bullet_budget[i] if i < len(bullet_budget) else 2
-        bullets = _select_bullets(exp, blob, budget)
-        context = f" - {exp['context']}" if exp.get("context") else ""
-        story.append(Paragraph(f"{exp['title']} - {exp['company']}", exp_title_style))
-        story.append(Paragraph(f"{exp['duration']}{context}", exp_meta_style))
-        for b in bullets:
-            story.append(Paragraph(f"&bull; {_bold_matches(b, matched_keywords)}", bullet_style))
+    story.append(Paragraph("Compétences", section_style))
+    story.append(Paragraph(" | ".join(v["competences"]), body_style))
 
-    story.append(Paragraph("COMPETENCES", section_style))
-    matched_categories = set()
-    for cat, items in CANDIDATE["skill_categories"].items():
-        items_blob = " ".join(items).lower()
-        if any(kw in items_blob and kw in blob for kw in CV_KEYWORD_POOL):
-            matched_categories.add(cat)
-    ordered_categories = sorted(
-        CANDIDATE["skill_categories"].items(),
-        key=lambda pair: pair[0] not in matched_categories,
-    )
-    for cat, items in ordered_categories:
-        story.append(Paragraph(f"<b>{cat} :</b> {', '.join(items)}", body_style))
-    story.append(Paragraph(f"<b>Savoir-etre :</b> {', '.join(CANDIDATE['soft_skills'])}", body_style))
+    story.append(Paragraph("Expérience professionnelle", section_style))
+    for exp in experiences:
+        story.append(Paragraph(f"{exp['title']} - {re.sub('<[^<]+?>', '', exp['company'])}", exp_title_style))
+        story.append(Paragraph(f"{exp['date']} · {exp['location']}", exp_meta_style))
+        for group in exp["groups"]:
+            bullets = group["bullets"]
+            story.append(ListFlowable(
+                [ListItem(Paragraph(_bold_matches(b, blob), body_style)) for b in bullets],
+                bulletType="bullet",
+            ))
 
-    story.append(Paragraph("FORMATION & CERTIFICATIONS", section_style))
-    for edu in CANDIDATE["education"]:
-        story.append(Paragraph(
-            f"<b>{edu['degree']}</b> ({edu['years']}) - {edu['detail']}. {edu['note']}.",
-            body_style,
-        ))
-    cert_line = " | ".join(f"{c['name']} ({c['issuer']})" for c in CANDIDATE["certifications"])
-    story.append(Paragraph(f"<b>Certifications :</b> {cert_line}", body_style))
+    story.append(Paragraph("Formation", section_style))
+    for f in guide.FORMATION:
+        story.append(Paragraph(f"<b>{f['title']}</b> ({f['date']}) - {f['company']}", body_style))
 
-    story.append(Paragraph("LANGUES", section_style))
-    story.append(Paragraph(
-        " | ".join(f"{lang['name']} ({lang['level']})" for lang in CANDIDATE["languages"]),
-        body_style,
-    ))
+    story.append(Paragraph("Certifications", section_style))
+    story.append(Paragraph(" | ".join(guide.SIDEBAR["certifications"]), body_style))
 
-    story.append(Paragraph("POINTS FORTS", section_style))
-    for point in CANDIDATE["differentiators"][:5]:
-        story.append(Paragraph(f"&bull; {point}", bullet_style))
+    story.append(Paragraph("Langues", section_style))
+    story.append(Paragraph(" | ".join(guide.SIDEBAR["langues"]), body_style))
 
-    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    doc.build(story)
     return path

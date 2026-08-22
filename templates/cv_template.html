@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>CV — {{ c.name }}</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,400;0,700;1,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* ===========================================================================
+   1. COLORS — tokens extraits des deux CV sources (cv_identity_guide.py)
+   =========================================================================== */
+:root{
+  --primary:    #150D49;
+  --accent:     #2B2270;
+  --highlight:  #95C11E;
+  --heading:    #141414;
+  --text:       #3F3F3F;
+  --text-muted: #656565;
+  --bg:         #FFFFFF;
+  --surface:    #F4F4F7;
+  --rule:       #E2E2EA;
+  --sidebar-fg: #FFFFFF;
+}
+
+/* ===========================================================================
+   2. TYPOGRAPHY
+   =========================================================================== */
+*{box-sizing:border-box;}
+body{
+  font-family:"Lato","Open Sans","Segoe UI",Arial,sans-serif;
+  font-size:10pt; line-height:1.45; color:var(--text);
+  background:var(--bg); margin:0;
+}
+h1,h2,h3,h4{font-family:"Space Grotesk","Lato","Segoe UI",Arial,sans-serif;margin:0;}
+h1{font-size:24pt;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--primary);}
+h2{font-size:11.5pt;font-weight:500;color:var(--accent);margin-top:4px;}
+h3{font-size:13pt;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--primary);}
+h4{font-size:11pt;font-weight:700;color:var(--heading);}
+strong{font-weight:700;color:var(--heading);}
+.muted{color:var(--text-muted);}
+.small{font-size:9.5pt;}
+.tools{font-size:9.5pt;font-style:italic;color:var(--text-muted);margin:4px 0 0;}
+.tools b{font-style:normal;text-decoration:underline;font-weight:400;color:var(--text-muted);}
+.kpi{color:var(--highlight);font-weight:700;}
+
+/* ===========================================================================
+   3. PAGE & LAYOUT — A4, marges 14mm, 2 colonnes 30/70, gouttière 8mm
+   =========================================================================== */
+@page{size:A4;margin:14mm;}
+.page{max-width:182mm;margin:0 auto;padding:14mm 0;}
+/* CSS tables (not grid/flex) are used here because weasyprint fragments
+   table rows across pages correctly; flex/grid containers get pushed
+   whole to the next page instead of splitting mid-content. */
+.cv{display:table;width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;}
+.sidebar{display:table-cell;width:30%;vertical-align:top;}
+.main{display:table-cell;width:70%;vertical-align:top;padding-left:8mm;}
+body.mode-ats .cv{display:block;width:auto;}
+body.mode-ats .sidebar{display:block;background:none;color:var(--text);padding:0;width:auto;}
+body.mode-ats .main{display:block;padding-left:0;}
+body.mode-ats .sidebar h3{color:var(--primary);border-bottom-color:var(--rule);}
+body.mode-ats .sidebar li{color:var(--text);}
+body.mode-ats .sidebar li.bullet::before{color:var(--accent);}
+body.mode-ats .photo{display:none;}
+/* ATS mode stacks the sidebar sections into the main flow, which needs
+   less vertical breathing room than the 2-column design layout to stay
+   within the 2-page guideline. */
+body.mode-ats .section{margin-bottom:14px;}
+body.mode-ats .experience-item{margin-bottom:10px;}
+body.mode-ats li.bullet{margin-bottom:1px;}
+
+.header{padding-bottom:10px;border-bottom:1.5px solid var(--primary);margin-bottom:20px;}
+.contact{font-size:9.5pt;color:var(--text-muted);margin:8px 0 0;}
+.contact span+span::before{content:" · ";color:var(--rule);}
+
+.sidebar{background:var(--primary);color:var(--sidebar-fg);padding:14px 14px 20px;}
+.sidebar h3{color:var(--sidebar-fg);font-size:11.5pt;border-bottom:1px solid rgba(255,255,255,.25);padding-bottom:4px;}
+.sidebar .section{margin-bottom:18px;}
+.sidebar li{color:rgba(255,255,255,.88);}
+
+.section{margin-bottom:20px;}
+.section > h3 + *{margin-top:8px;}
+.section-rule{height:1.5px;background:var(--primary);margin-top:4px;}
+
+.experience-item{margin-bottom:14px;}
+.experience-header{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+.date{font-size:9.5pt;color:var(--text-muted);white-space:nowrap;}
+.company{font-size:10.5pt;font-weight:600;color:var(--accent);margin:2px 0 0;}
+.location{font-size:9.5pt;color:var(--text-muted);font-weight:400;}
+.sub{font-size:10pt;text-decoration:underline;color:var(--heading);margin:8px 0 2px;}
+
+ul.bullets{list-style:none;margin:4px 0 0;padding:0;}
+li.bullet{position:relative;padding-left:14px;margin-bottom:3px;line-height:1.40;}
+li.bullet::before{content:"▪";position:absolute;left:0;color:var(--accent);}
+
+.skills-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.card{background:var(--surface);border-radius:4px;padding:10px 12px;}
+.card h4{font-size:10pt;margin-bottom:4px;color:var(--primary);}
+.impact{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;}
+.impact .n{font-family:"Space Grotesk",sans-serif;font-size:18pt;font-weight:700;color:var(--primary);}
+
+body.variant-aero .main{display:flex;flex-direction:column;}
+body.variant-aero .formation-section{order:-2;}
+body.variant-aero .projets-section{order:-1;}
+
+@media print{ .page{padding:0;} a{color:inherit;text-decoration:none;} }
+</style>
+</head>
+
+<body class="mode-{{ mode }} variant-{{ variant }}">
+<div class="page">
+
+  <header class="header">
+    <h1>{{ c.name }}</h1>
+    <h2>{{ v.headline }}</h2>
+    <p class="contact">
+      <span>{{ c.email }}</span>
+      <span>{{ c.phone }}</span>
+      <span>{{ c.linkedin }}</span>
+      <span>{{ c.city }}</span>
+    </p>
+  </header>
+
+<div class="cv">
+
+  <aside class="sidebar">
+    <div class="section">
+      <h3>Compétences</h3>
+      <ul class="bullets">
+        {% for item in v.competences %}
+        <li class="bullet">{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="section">
+      <h3>Secteurs</h3>
+      <ul class="bullets">
+        {% for item in sidebar.secteurs %}
+        <li class="bullet">{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="section">
+      <h3>Outils</h3>
+      <ul class="bullets">
+        {% for item in sidebar.outils %}
+        <li class="bullet">{{ item }}</li>
+        {% endfor %}
+        {% if variant == "aero" %}
+        <li class="bullet">{{ sidebar.outils_aero }}</li>
+        {% endif %}
+      </ul>
+    </div>
+
+    <div class="section">
+      <h3>Certifications</h3>
+      <ul class="bullets">
+        {% for item in sidebar.certifications %}
+        <li class="bullet">{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="section">
+      <h3>Langues</h3>
+      <ul class="bullets">
+        {% for item in sidebar.langues %}
+        <li class="bullet">{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <section class="section" id="profil">
+      <h3>Profil</h3><div class="section-rule"></div>
+      <p>{{ v.profile }}</p>
+    </section>
+
+    {% if v.show_impact %}
+    <section class="section">
+      <div class="impact">
+        {% for item in impact %}
+        <div class="card"><div class="n">{{ item.n }}</div><div class="small muted">{{ item.label }}</div></div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    <section class="section" id="experience">
+      <h3>Expérience professionnelle</h3><div class="section-rule"></div>
+
+      {% for exp in experiences %}
+      <div class="experience-item">
+        <div class="experience-header">
+          <h4>{{ exp.title }}</h4>
+          <span class="date">{{ exp.date }}</span>
+        </div>
+        <p class="company">{{ exp.company | safe }} <span class="location">· {{ exp.location }}</span></p>
+
+        {% for group in exp.groups %}
+          {% if group.sub %}<p class="sub">{{ group.sub }}</p>{% endif %}
+          <ul class="bullets">
+            {% for b in group.bullets %}
+            <li class="bullet">{{ b }}</li>
+            {% endfor %}
+          </ul>
+        {% endfor %}
+        {% if exp.tools %}<p class="tools">{{ exp.tools | safe }}</p>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+
+    <section class="section formation-section" id="formation">
+      <h3>Formation</h3><div class="section-rule"></div>
+      {% for f in formation %}
+      <div class="experience-item">
+        <div class="experience-header">
+          <h4>{{ f.title }}</h4>
+          <span class="date">{{ f.date }}</span>
+        </div>
+        <p class="company">{{ f.company }} <span class="location">· {{ f.location }}</span></p>
+        {% if f.bullets %}
+        <ul class="bullets">
+          {% for b in f.bullets %}
+          <li class="bullet">{{ b }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </section>
+
+    {% if variant == "aero" %}
+    <section class="section projets-section" id="projets">
+      <h3>Projets techniques</h3><div class="section-rule"></div>
+      {% for p in projects_aero %}
+      <div class="experience-item">
+        <div class="experience-header">
+          <h4>{{ p.title }}</h4>
+          <span class="date">{{ p.date }}</span>
+        </div>
+        <p class="company">{{ p.company }} <span class="location">· {{ p.location }}</span></p>
+        <ul class="bullets">
+          {% for b in p.bullets %}
+          <li class="bullet">{{ b }}</li>
+          {% endfor %}
+        </ul>
+        {% if p.tools %}<p class="tools">{{ p.tools | safe }}</p>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+  </main>
+</div>
+</div>
+</body>
+</html>

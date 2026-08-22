@@ -21,8 +21,31 @@ si la base est vide.
 
 ## Avant de l'utiliser pour de vrai
 
-Ouvrez `config.py` et completez `CANDIDATE["phone"]` avec votre numero de
-telephone (l'email est deja pre-rempli avec `abouamrene@gmail.com`).
+Le profil candidat (`CANDIDATE` dans `config.py`, et son identite visuelle
+dans `cv_identity_guide.py` pour le CV genere) est deja rempli avec les
+vraies coordonnees d'Amine.
+
+## Generation du CV : weasyprint
+
+`cv_generator.py` rend `templates/cv_template.html` (contenu dans
+`cv_identity_guide.py`, extrait des deux CV sources reels d'Amine - palette
+indigo `#150D49`, Lato/Space Grotesk) en PDF via
+[weasyprint](https://weasyprint.org/), qui depend de bibliotheques systeme
+natives (Pango, Cairo, GDK-Pixbuf) non installees par defaut sur tous les
+hebergeurs Python "buildpack" comme Render. Si l'import ou le rendu
+weasyprint echoue au runtime (bibliotheques absentes), le generateur
+bascule automatiquement sur l'ancien rendu reportlab (memes variantes de
+role AMOA/PM/Aero, mise en page plus simple) - la generation de CV ne casse
+jamais, meme si weasyprint ne peut pas tourner sur l'environnement de
+deploiement. Si vous voyez le CV "ancienne version" en sortie sur Render,
+installez les paquets systeme requis par weasyprint (voir leur doc
+d'installation) ou passez a un deploiement Docker.
+
+Le CV est genere en mode ATS (une colonne, sans photo, texte selectionnable)
+par defaut puisque c'est le canal principal de cette appli (candidatures sur
+job boards) ; le mode "design" (2 colonnes, sidebar indigo, pour un envoi
+direct a un recruteur) est disponible via `cv_generator.generate_cv(job,
+mode="design")`.
 
 ## Securite : proteger l'acces
 
@@ -125,10 +148,12 @@ source live configuree.
 - Scoring : salaire (25%), correspondance du poste (30%), secteur (15%),
   localisation (10%), notoriete de l'entreprise (12%), bonus (8%)
 - Filtres : secteur, salaire, score, localisation, statut de candidature
-- Generation en un clic d'un CV PDF adapte au role (titre et highlights
-  qui changent selon les mots-cles de l'offre) et d'une lettre de
-  motivation DOCX personnalisee (accroche, pourquoi ce role, pourquoi
-  cette entreprise)
+- Generation en un clic d'un CV PDF fidele a l'identite visuelle reelle
+  d'Amine (indigo `#150D49`, Lato/Space Grotesk, layout A4), decline en 3
+  variantes de role (AMOA / Product Owner / Aeronautique) auto-detectees
+  a partir des mots-cles de l'offre, rendu en version ATS une colonne -
+  et d'une lettre de motivation DOCX personnalisee (accroche, pourquoi ce
+  role, pourquoi cette entreprise)
 - Suivi de candidature (new / applied / interview / offer / rejected)
 - Stats du jour et market insights (salaire moyen par secteur, entreprises
   qui recrutent le plus, tendance des offres sur 14 jours)
@@ -145,12 +170,13 @@ job-market-dashboard/
 ├── app.py                 # Flask backend + routes API
 ├── scraper.py              # Scraping multi-source + fallback seed data
 ├── scorer.py               # Algorithme de scoring
-├── cv_generator.py         # Generation CV PDF (reportlab)
+├── cv_generator.py         # Rendu CV PDF : Jinja2 -> HTML -> weasyprint
+├── cv_identity_guide.py     # Design tokens + contenu reel du CV, par variante de role
 ├── letter_generator.py     # Generation lettre DOCX (python-docx)
 ├── database.py             # SQLite (schema + CRUD)
 ├── config.py                # Profil candidat + criteres de recherche
 ├── requirements.txt
-├── templates/index.html
+├── templates/{index.html,cv_template.html}
 ├── static/{css,js}/
 └── data/                    # jobs.db + export/ (auto-crees, gitignore)
 ```

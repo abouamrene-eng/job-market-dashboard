@@ -1,0 +1,123 @@
+/* Design tokens — single source of truth for the dashboard's visual language.
+   Palette: "Deep Indigo / Signal" (see DASHBOARD_DESIGN_RECOMMENDATIONS.md).
+   No component file should hardcode a hex color, radius or duration:
+   everything consumes a var() from here. */
+:root {
+  /* ---------- Colors ---------- */
+  --color-primary:            #4F46E5;
+  --color-primary-hover:      #4338CA;
+  --color-primary-active:     #3730A3;
+  --color-primary-subtle:     #EEF2FF;
+  --color-secondary:          #0F172A;
+  --color-accent:              #06B6D4;
+  --color-bg-primary:         #F8FAFC;
+  --color-bg-secondary:       #F1F5F9;
+  --color-surface:            #FFFFFF;
+  --color-surface-alt:        #F8FAFC;
+  --color-text-primary:       #0F172A;
+  --color-text-secondary:     #475569;
+  --color-text-tertiary:      #94A3B8;
+  --color-text-inverse:       #FFFFFF;
+  --color-border:              #E2E8F0;
+  --color-border-strong:      #CBD5E1;
+  --color-success:            #059669;
+  --color-success-subtle:     #ECFDF5;
+  --color-warning:            #D97706;
+  --color-warning-subtle:     #FFFBEB;
+  --color-error:              #DC2626;
+  --color-error-subtle:       #FEF2F2;
+  --color-info:               #0284C7;
+
+  /* Score scale */
+  --color-score-high: #059669;
+  --color-score-good: #0891B2;
+  --color-score-mid:  #D97706;
+  --color-score-low:  #94A3B8;
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #4F46E5 0%, #6366F1 100%);
+  --gradient-score:   linear-gradient(90deg, #06B6D4 0%, #059669 100%);
+
+  /* ---------- Typography ---------- */
+  --font-family-primary:   'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family-secondary: 'Plus Jakarta Sans', var(--font-family-primary);
+
+  --font-size-xs:   12px;
+  --font-size-sm:   13px;
+  --font-size-base: 14px;
+  --font-size-md:   15px;
+  --font-size-lg:   17px;
+  --font-size-xl:   20px;
+  --font-size-2xl:  22px;
+  --font-size-3xl:  28px;
+  --font-size-4xl:  36px;
+
+  --font-weight-regular:  400;
+  --font-weight-medium:   500;
+  --font-weight-semibold: 600;
+  --font-weight-bold:     700;
+
+  --line-height-tight:   1.2;
+  --line-height-snug:    1.35;
+  --line-height-normal:  1.5;
+  --line-height-relaxed: 1.6;
+
+  --letter-spacing-tight: -0.4px;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide:  0.6px;
+
+  /* ---------- Spacing (4/8 grid) ---------- */
+  --spacing-2xs: 4px;
+  --spacing-xs:  8px;
+  --spacing-sm:  12px;
+  --spacing-md:  16px;
+  --spacing-lg:  20px;
+  --spacing-xl:  24px;
+  --spacing-2xl: 32px;
+  --spacing-3xl: 40px;
+  --spacing-4xl: 48px;
+  --spacing-5xl: 64px;
+
+  /* ---------- Radius ---------- */
+  --radius-sm:   6px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-full: 9999px;
+
+  /* ---------- Shadows (tinted slate, never pure black) ---------- */
+  --shadow-xs:   0 1px 2px rgba(15,23,42,.04);
+  --shadow-sm:   0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04);
+  --shadow-md:   0 4px 12px rgba(15,23,42,.08), 0 2px 4px rgba(15,23,42,.04);
+  --shadow-lg:   0 12px 24px -6px rgba(15,23,42,.12), 0 4px 8px rgba(15,23,42,.06);
+  --shadow-xl:   0 24px 48px -12px rgba(15,23,42,.20);
+  --shadow-focus: 0 0 0 3px rgba(79,70,229,.15);
+
+  /* ---------- Transitions ---------- */
+  --transition-instant: 80ms  cubic-bezier(.4,0,.2,1);
+  --transition-fast:    140ms cubic-bezier(.4,0,.2,1);
+  --transition-base:    220ms cubic-bezier(.16,1,.3,1);
+  --transition-slow:    400ms cubic-bezier(.16,1,.3,1);
+
+  /* ---------- Layout ---------- */
+  --container-max:  1360px;
+  --sidebar-width:  272px;
+  --header-height:  64px;
+  --content-measure: 68ch;
+
+  /* ---------- Z-index ---------- */
+  --z-sticky: 20;
+  --z-header: 50;
+  --z-dropdown: 60;
+  --z-overlay: 80;
+  --z-modal: 90;
+  --z-toast: 100;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

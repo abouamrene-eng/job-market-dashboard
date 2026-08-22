@@ -37,9 +37,19 @@ const Filters = (() => {
     const slider = document.getElementById("filter-salary");
     const label = document.getElementById("filter-salary-value");
     slider.addEventListener("input", () => {
-      label.textContent = `${Number(slider.value).toLocaleString("fr-FR")}€`;
+      label.textContent = `${Number(slider.value).toLocaleString("fr-FR")} €`;
     });
   }
 
-  return { read, reset, bindSalarySlider };
+  function countActive() {
+    let n = 0;
+    if (!allChecked("filter-sector")) n += 1;
+    if (!allChecked("filter-location")) n += 1;
+    if (Number(document.getElementById("filter-salary").value) > 60000) n += 1;
+    if (document.getElementById("filter-score").value !== "all") n += 1;
+    if (document.getElementById("filter-status").value !== "all") n += 1;
+    return n;
+  }
+
+  return { read, reset, bindSalarySlider, countActive };
 })();

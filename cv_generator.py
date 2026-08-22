@@ -9,6 +9,7 @@ target; if it fails to import or to render, we fall back to the older
 reportlab-based generator (role-adaptive keyword bolding, 1-page budget) so
 CV generation never breaks in production.
 """
+import logging
 import os
 import re
 import unicodedata
@@ -18,6 +19,8 @@ from jinja2 import Environment, FileSystemLoader
 
 import cv_identity_guide as guide
 from config import EXPORT_DIR
+
+logger = logging.getLogger("cv_generator")
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates")
 _env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
@@ -69,7 +72,11 @@ def generate_cv(job: dict, mode: str = "ats") -> str:
         html = render_cv_html(job, mode=mode, variant=variant)
         HTML(string=html, base_url=TEMPLATE_DIR).write_pdf(path)
         return path
-    except Exception:
+    except Exception as e:
+        # Falling back silently would mean a broken weasyprint install goes
+        # unnoticed forever - log the real cause so it shows up in the
+        # deploy's logs instead of just "CV looks different than expected".
+        logger.error("weasyprint failed, falling back to reportlab CV: %s", e, exc_info=True)
         return _generate_cv_legacy(job, path)
 
 

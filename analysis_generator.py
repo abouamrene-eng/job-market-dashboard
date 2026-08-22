@@ -37,7 +37,7 @@ def generate_analysis(job: dict, score_result: dict) -> dict:
     if not advantages:
         advantages.append("Aucun signal fort particulier au-delà du fit de rôle de base.")
 
-    if score_result["score_salary"] <= 5:
+    if salary_ref and score_result["score_salary"] <= 5:
         disadvantages.append(f"Salaire affiché ({_fmt_k(salary_ref)}) nettement en dessous de ta cible (95-110k€).")
     if not score_result["is_aeronautique"]:
         disadvantages.append("Hors secteur aéronautique - moins directement utile pour ton positionnement de spécialiste.")

@@ -437,6 +437,70 @@
     document.getElementById("job-modal").classList.remove("is-open");
   }
 
+  function openAddJobModal() {
+    const modal = document.getElementById("job-modal");
+    document.getElementById("modal-content").innerHTML = `
+      <h2 style="font-size:20px; font-weight:700; color:var(--color-text-primary); margin:0 0 4px; padding-right:40px;">Ajouter une offre</h2>
+      <p style="font-size:12px; color:var(--color-text-tertiary); margin:0 0 20px;">Une offre trouvée en dehors du scraping automatique (veille manuelle, recherche web...) - elle sera scorée et ajoutée directement à Mes Offres.</p>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <input id="add-job-title" class="text-input" placeholder="Intitulé du poste *">
+        <input id="add-job-company" class="text-input" placeholder="Entreprise *">
+        <input id="add-job-url" class="text-input" type="url" placeholder="Lien de l'offre *">
+        <input id="add-job-location" class="text-input" placeholder="Localisation">
+        <input id="add-job-sector" class="text-input" placeholder="Secteur (ex: Aéronautique, Fintech...)">
+        <div style="display:flex; gap:10px;">
+          <input id="add-job-salary-min" class="text-input" type="number" placeholder="Salaire min (€)">
+          <input id="add-job-salary-max" class="text-input" type="number" placeholder="Salaire max (€)">
+        </div>
+        <textarea id="add-job-description" rows="3" class="text-input" placeholder="Description / notes (optionnel)"></textarea>
+      </div>
+      <div class="job-card-actions" style="margin-top:16px;">
+        <button class="btn btn-primary" data-action="create-job">Ajouter à Mes Offres</button>
+      </div>
+    `;
+    modal.classList.add("is-open");
+    document.getElementById("modal-close").focus();
+  }
+
+  async function handleCreateJob(btn) {
+    const title = document.getElementById("add-job-title").value.trim();
+    const company = document.getElementById("add-job-company").value.trim();
+    const url = document.getElementById("add-job-url").value.trim();
+    if (!title || !company || !url) {
+      toast("Titre, entreprise et lien sont obligatoires");
+      return;
+    }
+    const payload = {
+      job_title: title,
+      company,
+      job_url: url,
+      location: document.getElementById("add-job-location").value.trim(),
+      sector: document.getElementById("add-job-sector").value.trim(),
+      job_description: document.getElementById("add-job-description").value.trim(),
+      status: "saved",
+    };
+    const salMin = document.getElementById("add-job-salary-min").value;
+    const salMax = document.getElementById("add-job-salary-max").value;
+    if (salMin) payload.salary_min = Number(salMin);
+    if (salMax) payload.salary_max = Number(salMax);
+
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Ajout…";
+    try {
+      await Api.createJob(payload);
+      toast("Offre ajoutée à Mes Offres");
+      closeModal();
+      await loadJobs();
+      await loadStats();
+    } catch (e) {
+      toast(`Erreur : ${e.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
   function barRow(label, value, maxValue, valueLabel) {
     const pct = maxValue > 0 ? Math.max(4, Math.round((value / maxValue) * 100)) : 0;
     return `
@@ -641,6 +705,7 @@
   function bindEvents() {
     document.getElementById("btn-refresh").addEventListener("click", handleRefresh);
     document.getElementById("btn-insights").addEventListener("click", openInsights);
+    document.getElementById("btn-add-job").addEventListener("click", openAddJobModal);
     document.querySelectorAll(".nav-tab").forEach((tab) => {
       tab.addEventListener("click", () => {
         document.querySelectorAll(".nav-tab").forEach((t) => {
@@ -723,6 +788,8 @@
         handleCopyLink(el.dataset.url);
       } else if (el.dataset.action === "save-status") {
         handleSaveStatus(jobId, el);
+      } else if (el.dataset.action === "create-job") {
+        handleCreateJob(el);
       }
     });
   }

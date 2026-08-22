@@ -396,6 +396,45 @@ def api_update_status(job_id):
     return jsonify({"success": True})
 
 
+@app.route("/api/jobs", methods=["POST"])
+def api_create_job():
+    """Manually logs a job found outside the automated scrapers - e.g. via
+    an external market-research pass. Scored and stored exactly like a
+    scraped posting, defaulting straight into 'saved' since that's the
+    normal use case: it was already found and vetted, not something to
+    re-discover in the Flux."""
+    body = request.get_json(silent=True) or {}
+    job_title = (body.get("job_title") or "").strip()
+    company = (body.get("company") or "").strip()
+    job_url = (body.get("job_url") or "").strip()
+    if not job_title or not company or not job_url:
+        return jsonify({"error": "missing_fields", "required": ["job_title", "company", "job_url"]}), 400
+
+    status = body.get("status", "saved")
+    if status not in VALID_STATUSES:
+        return jsonify({"error": "invalid_status", "allowed": sorted(VALID_STATUSES)}), 400
+
+    job = {
+        "job_title": job_title,
+        "company": company,
+        "job_url": job_url,
+        "location": (body.get("location") or "").strip(),
+        "sector": (body.get("sector") or "").strip(),
+        "salary_min": body.get("salary_min"),
+        "salary_max": body.get("salary_max"),
+        "job_description": (body.get("job_description") or "").strip(),
+        "source": "Ajout manuel",
+        "date_found": date.today().isoformat(),
+    }
+    result = score_job(job)
+    job.update(result)
+    job_id = db.upsert_job(job)
+    _score_job_extras(job_id, job, result)
+    db.update_job(job_id, status=status)
+    tracking_store.upsert_tracking(job_url, status=status)
+    return jsonify(db.get_job(job_id)), 201
+
+
 @app.route("/api/jobs/<job_id>/save", methods=["POST"])
 def api_save_job(job_id):
     """Quick 'Sauvegarder' action - moves the job from Flux to Mes Offres."""

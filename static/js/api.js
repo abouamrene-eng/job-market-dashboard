@@ -57,6 +57,12 @@ const Api = (() => {
     saveJob(id) {
       return request(`/api/jobs/${id}/save`, { method: "POST" });
     },
+    createJob(payload) {
+      return request(`/api/jobs`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
     rejectJob(id, reason) {
       return request(`/api/jobs/${id}/reject`, {
         method: "POST",

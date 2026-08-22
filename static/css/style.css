@@ -260,6 +260,7 @@ input[type="range"] {
    =========================================================================== */
 .feed-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); margin-bottom: var(--spacing-md); flex-wrap: wrap; }
 .feed-toolbar-left { display: flex; align-items: center; gap: var(--spacing-sm); }
+.feed-toolbar-right { display: flex; align-items: center; gap: var(--spacing-md); }
 .feed-toolbar-left label { font-size: var(--font-size-sm); color: var(--color-text-secondary); }
 .feed-toolbar-left select { width: auto; }
 .jobs-count { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); color: var(--color-text-secondary); }

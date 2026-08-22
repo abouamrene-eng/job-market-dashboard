@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+data/*.db
+data/export/*
+!data/export/.gitkeep
+.env
+.env.*
+.git/
+.DS_Store
+.vscode/
+.idea/

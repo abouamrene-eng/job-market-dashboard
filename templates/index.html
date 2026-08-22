@@ -23,17 +23,9 @@
       </span>
     </a>
     <div class="app-header-actions">
-      <button id="btn-advisor" class="btn btn-secondary">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="10"/></svg>
-        Conseiller
-      </button>
-      <button id="btn-comparison" class="btn btn-secondary">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-6"/><path d="M12 16V6"/><path d="M17 16v-3"/></svg>
-        Path A vs B
-      </button>
       <button id="btn-insights" class="btn btn-secondary">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-        Tendances
+        Statistiques
       </button>
       <button id="btn-refresh" class="btn btn-icon btn-secondary" title="Actualiser" aria-label="Actualiser les offres">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
@@ -41,6 +33,8 @@
     </div>
   </div>
 </header>
+
+<div class="profile-bar" id="profile-bar">Chargement du profil…</div>
 
 <main id="main-content">
   <section class="stats-section container">
@@ -68,7 +62,7 @@
         </div>
         <div class="stat-label">Top matches</div>
         <div class="stat-value tnum" id="stat-top">–</div>
-        <div class="stat-delta">Score ≥ 90</div>
+        <div class="stat-delta">Score &gt; 75</div>
       </div>
       <div class="stat-card">
         <div class="stat-icon tone-warning">
@@ -90,61 +84,58 @@
       </div>
 
       <fieldset class="filter-group">
-        <legend>Score</legend>
-        <select id="filter-score" class="select-control">
-          <option value="all">Tous les scores</option>
-          <option value="top">Excellent (&gt; 75)</option>
-          <option value="good">Bon (60-75)</option>
-        </select>
+        <legend>Secteur</legend>
+        <label class="filter-option"><input type="checkbox" id="filter-aero" checked> Aéronautique &amp; Défense uniquement</label>
       </fieldset>
 
       <fieldset class="filter-group">
-        <legend>Secteur</legend>
-        <div id="filter-sector">
-          <label class="filter-option"><input type="checkbox" value="Conseil" checked> Conseil</label>
-          <label class="filter-option"><input type="checkbox" value="Tech" checked> Tech</label>
-          <label class="filter-option"><input type="checkbox" value="Industrie" checked> Industrie</label>
-          <label class="filter-option"><input type="checkbox" value="Energie" checked> Énergie</label>
-          <label class="filter-option"><input type="checkbox" value="Finance" checked> Finance</label>
-          <label class="filter-option"><input type="checkbox" value="Insurtech" checked> Insurtech</label>
+        <legend>Rôle</legend>
+        <div id="filter-role">
+          <label class="filter-option"><input type="checkbox" value="Product Manager" checked> Product Manager</label>
+          <label class="filter-option"><input type="checkbox" value="Product Owner" checked> Product Owner</label>
+          <label class="filter-option"><input type="checkbox" value="AMOA" checked> AMOA</label>
+          <label class="filter-option"><input type="checkbox" value="Programme Manager" checked> Programme Manager</label>
+        </div>
+      </fieldset>
+
+      <fieldset class="filter-group">
+        <legend>Entreprise</legend>
+        <div id="filter-company">
+          <label class="filter-option"><input type="checkbox" value="BigCo" checked> Grand groupe</label>
+          <label class="filter-option"><input type="checkbox" value="Scale-up" checked> Scale-up</label>
+          <label class="filter-option"><input type="checkbox" value="Startup" checked> Startup</label>
         </div>
       </fieldset>
 
       <fieldset class="filter-group">
         <legend>Localisation</legend>
         <div id="filter-location">
-          <label class="filter-option"><input type="checkbox" value="Remote" checked> Remote</label>
-          <label class="filter-option"><input type="checkbox" value="Mixte" checked> Mixte</label>
-          <label class="filter-option"><input type="checkbox" value="IDF" checked> Île-de-France</label>
-          <label class="filter-option"><input type="checkbox" value="Province" checked> Province</label>
+          <label class="filter-option"><input type="checkbox" value="Remote" checked> Remote 100%</label>
+          <label class="filter-option"><input type="checkbox" value="Hybride" checked> Hybride</label>
+          <label class="filter-option"><input type="checkbox" value="Paris" checked> Paris</label>
+          <label class="filter-option"><input type="checkbox" value="Toulouse" checked> Toulouse</label>
         </div>
       </fieldset>
 
       <fieldset class="filter-group">
         <legend>Salaire minimum</legend>
-        <input type="range" id="filter-salary" min="60000" max="110000" step="1000" value="60000">
-        <div class="range-value-row"><span>Min : <strong id="filter-salary-value">60 000 €</strong></span></div>
+        <input type="range" id="filter-salary" min="85000" max="120000" step="1000" value="85000">
+        <div class="range-value-row"><span>Min : <strong id="filter-salary-value">85 000 €</strong></span></div>
       </fieldset>
 
       <fieldset class="filter-group">
-        <legend>Statut</legend>
-        <select id="filter-status" class="select-control">
-          <option value="all">Tous</option>
-          <option value="new">Non appliqué</option>
-          <option value="applied">Appliqué</option>
-          <option value="interview">Entretien</option>
-          <option value="offer">Offre</option>
-          <option value="rejected">Refusé</option>
-        </select>
+        <legend>Signaux spéciaux</legend>
+        <label class="filter-option"><input type="checkbox" id="filter-enac"> ENAC mentionné</label>
       </fieldset>
     </aside>
 
     <section aria-labelledby="feed-heading">
       <h2 id="feed-heading" class="visually-hidden">Offres d'emploi</h2>
-      <div class="path-tabs" role="tablist" aria-label="Filtrer par career path">
-        <button class="path-tab is-active" data-path="" role="tab" aria-selected="true">Toutes les offres</button>
-        <button class="path-tab" data-path="a" role="tab" aria-selected="false">Path A · Product/AMOA</button>
-        <button class="path-tab" data-path="b" role="tab" aria-selected="false">Path B · Sales Engineer</button>
+      <div class="nav-tabs" role="tablist" aria-label="Vues des offres">
+        <button class="nav-tab is-active" data-tab="flux" role="tab" aria-selected="true">🔴 Flux <span class="tnum" id="tab-count-flux"></span></button>
+        <button class="nav-tab" data-tab="saved" role="tab" aria-selected="false">💾 Mes Offres <span class="tnum" id="tab-count-saved"></span></button>
+        <button class="nav-tab" data-tab="applied" role="tab" aria-selected="false">✅ Candidatées <span class="tnum" id="tab-count-applied"></span></button>
+        <button class="nav-tab" data-tab="rejected" role="tab" aria-selected="false">🚫 Refusées <span class="tnum" id="tab-count-rejected"></span></button>
       </div>
       <div class="feed-toolbar">
         <div class="feed-toolbar-left">
@@ -161,7 +152,8 @@
       <div id="jobs-feed" class="jobs-feed"></div>
       <div id="jobs-empty" class="empty-state hidden">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-        <p>Aucune offre ne correspond à ces filtres.</p>
+        <p id="jobs-empty-message">Aucune offre ne correspond à ces filtres.</p>
+        <div id="jobs-empty-sources" class="source-status-list"></div>
         <button id="btn-empty-reset" class="btn btn-secondary">Réinitialiser les filtres</button>
       </div>
 

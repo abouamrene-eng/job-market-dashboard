@@ -51,14 +51,23 @@ const Api = (() => {
     getInsights() {
       return request("/api/insights");
     },
-    getJobScores(id) {
-      return request(`/api/jobs/${id}/scores`);
+    getAnalysis(id) {
+      return request(`/api/jobs/${id}/analysis`);
     },
-    getPathStats() {
-      return request("/api/path-stats");
+    saveJob(id) {
+      return request(`/api/jobs/${id}/save`, { method: "POST" });
     },
-    getCareerAdvice() {
-      return request("/api/career-advice");
+    rejectJob(id, reason) {
+      return request(`/api/jobs/${id}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+    },
+    getProfile() {
+      return request("/api/profile");
+    },
+    getDataSources() {
+      return request("/api/data-sources");
     },
     runScrape() {
       return request("/api/scrape/run", { method: "POST" });

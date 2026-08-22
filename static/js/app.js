@@ -1,6 +1,6 @@
 (() => {
   const PAGE_SIZE = 10;
-  let state = { page: 1, total: 0, jobs: [], path: "" };
+  let state = { page: 1, total: 0, jobs: [], tab: "flux" };
 
   const feedEl = document.getElementById("jobs-feed");
   const emptyEl = document.getElementById("jobs-empty");
@@ -19,10 +19,26 @@
 
   const STATUS_LABELS = {
     new: "Non candidate",
+    saved: "Sauvegardee",
     applied: "Candidate",
     interview: "Entretien",
     offer: "Offre",
     rejected: "Refuse",
+  };
+
+  const REJECT_REASON_LABELS = {
+    pas_interesse: "Pas interesse",
+    salaire_trop_bas: "Salaire trop bas",
+    trop_loin: "Trop loin",
+    pas_aeronautique: "Pas aeronautique",
+    autre: "Autre",
+  };
+
+  const EMPTY_MESSAGES = {
+    flux: "Aucune nouvelle offre pour l'instant.",
+    saved: "Tu n'as encore sauvegarde aucune offre.",
+    applied: "Tu n'as encore candidate a aucune offre.",
+    rejected: "Aucune offre refusee.",
   };
 
   function scoreTier(score) {
@@ -45,6 +61,17 @@
     if (days <= 0) return "aujourd'hui";
     if (days === 1) return "hier";
     return `il y a ${days} j`;
+  }
+
+  function relativeUpdate(str) {
+    if (!str) return "jamais";
+    const t = new Date(str.replace(" ", "T"));
+    const mins = Math.floor((Date.now() - t.getTime()) / 60000);
+    if (mins < 1) return "a l'instant";
+    if (mins < 60) return `il y a ${mins} min`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `il y a ${hours}h`;
+    return `il y a ${Math.floor(hours / 24)}j`;
   }
 
   function escapeHtml(str) {
@@ -73,25 +100,58 @@
     return `<span class="company-avatar">${initial}</span>`;
   }
 
-  function pathScoreRow(job) {
-    const a = Math.round(job.path_a_score || 0);
-    const b = Math.round(job.path_b_score || 0);
-    const primary = job.primary_path;
+  function jobActions(job) {
+    const s = job.status;
+    const secondary = `
+      <div class="job-card-actions-secondary">
+        <button class="btn btn-ghost btn-sm" data-action="details" data-id="${job.id}">Détails</button>
+        <a href="${job.job_url}" target="_blank" rel="noopener" class="job-card-link" title="Ouvre l'offre originale sur ${job.source || "la source"}">Voir l'offre ${ICONS.externalLink}</a>
+      </div>
+    `;
+    if (s === "rejected") {
+      return `
+        <span class="status-pill status-rejected">Refusée${job.reject_reason ? " · " + (REJECT_REASON_LABELS[job.reject_reason] || job.reject_reason) : ""}</span>
+        <button class="btn btn-ghost btn-sm" data-action="restore" data-id="${job.id}">Restaurer</button>
+        <div class="job-card-actions-secondary">
+          <button class="btn btn-ghost btn-sm" data-action="details" data-id="${job.id}">Détails</button>
+        </div>
+      `;
+    }
+    if (s === "applied" || s === "interview" || s === "offer") {
+      return `
+        <button class="btn btn-primary" data-action="generate" data-id="${job.id}">${ICONS.sparkle} Générer CV &amp; LM</button>
+        <span class="status-pill status-${s}">${STATUS_LABELS[s]}</span>
+        ${secondary}
+      `;
+    }
+    const saveBtn = s === "new" ? `<button class="btn btn-secondary" data-action="save" data-id="${job.id}">💾 Sauvegarder</button>` : "";
     return `
-      <div class="path-score-row">
-        <span class="path-score-chip ${primary === "A" ? "is-lead" : ""}">Path A <span class="path-score-value tnum">${a}</span></span>
-        <span class="path-score-chip ${primary === "B" ? "is-lead" : ""}">Path B <span class="path-score-value tnum">${b}</span></span>
-        ${primary === "both" ? `<span class="path-score-chip path-badge-cross">Cross-fit</span>` : ""}
+      <button class="btn btn-primary" data-action="generate" data-id="${job.id}">${ICONS.sparkle} Générer CV &amp; LM</button>
+      ${saveBtn}
+      <button class="btn btn-secondary" data-action="apply" data-id="${job.id}">Marquer candidature</button>
+      <button class="btn btn-ghost" data-action="reject-toggle" data-id="${job.id}">🚫 Rejeter</button>
+      ${secondary}
+    `;
+  }
+
+  function rejectPicker(job) {
+    if (job.status === "rejected") return "";
+    return `
+      <div class="reject-picker hidden" id="reject-picker-${job.id}">
+        <span class="reject-picker-label">Pourquoi rejeter cette offre ?</span>
+        ${Object.entries(REJECT_REASON_LABELS).map(([k, label]) =>
+          `<button class="btn btn-secondary btn-sm" data-action="reject-confirm" data-id="${job.id}" data-reason="${k}">${label}</button>`
+        ).join("")}
+        <button class="btn btn-ghost btn-sm" data-action="reject-cancel" data-id="${job.id}">Annuler</button>
       </div>
     `;
   }
 
   function jobCard(job) {
     const tier = scoreTier(job.score);
-    const isApplied = job.status !== "new";
     const desc = job.job_description || "";
     return `
-      <article class="job-card ${tier} ${isApplied ? "is-applied" : ""}" data-id="${job.id}">
+      <article class="job-card ${tier} ${job.status !== "new" ? "is-applied" : ""}" data-id="${job.id}">
         <div class="job-card-head">
           <div class="job-card-title-wrap">
             <h3 class="job-card-title">${job.job_title}</h3>
@@ -105,11 +165,11 @@
               <span>${job.location || "-"}</span>
             </div>
             <div class="job-card-chips">
+              ${job.is_aeronautique ? `<span class="badge badge-sector">✈️ Aéronautique</span>` : ""}
               ${job.sector ? `<span class="badge badge-sector">${job.sector}</span>` : ""}
               <span class="badge badge-sector">${relativeDate(job.date_found)}</span>
-              ${isApplied ? `<span class="status-pill status-${job.status}">${STATUS_LABELS[job.status] || job.status}</span>` : ""}
             </div>
-            ${pathScoreRow(job)}
+            ${job.salary_estimate_min ? `<div class="salary-estimate">${ICONS.trend} Tu peux prétendre à ${Math.round(job.salary_estimate_min / 1000)}-${Math.round(job.salary_estimate_max / 1000)}k€</div>` : ""}
           </div>
           <div>
             ${scoreRing(job.score, tier)}
@@ -118,25 +178,42 @@
         </div>
         <p class="job-card-desc">${desc.slice(0, 180)}${desc.length > 180 ? "…" : ""}</p>
         <div class="job-card-actions">
-          <button class="btn btn-primary" data-action="generate" data-id="${job.id}">
-            ${ICONS.sparkle} Générer CV &amp; LM
-          </button>
-          <button class="btn btn-secondary" data-action="apply" data-id="${job.id}" ${isApplied ? "disabled" : ""}>
-            ${isApplied ? "Candidaté" : "Marquer candidature"}
-          </button>
-          <div class="job-card-actions-secondary">
-            <button class="btn btn-ghost btn-sm" data-action="details" data-id="${job.id}">Détails</button>
-            <a href="${job.job_url}" target="_blank" rel="noopener" class="job-card-link" title="Ouvre l'offre originale sur ${job.source || "la source"}">Voir l'offre ${ICONS.externalLink}</a>
-          </div>
+          ${jobActions(job)}
         </div>
+        ${rejectPicker(job)}
       </article>
     `;
+  }
+
+  function sourceStatusLine(s) {
+    if (s.connected) {
+      return `<div>${s.name} ✅ mis à jour ${relativeUpdate(s.last_updated)} — ${s.jobs_found || 0} offre(s)</div>`;
+    }
+    const icon = s.name === "Google Jobs" ? "⏳" : "❌";
+    return `<div>${s.name} ${icon} ${s.note || "Non connecté"}</div>`;
+  }
+
+  async function renderEmptyState() {
+    document.getElementById("jobs-empty-message").textContent =
+      EMPTY_MESSAGES[state.tab] || "Aucune offre ne correspond à ces filtres.";
+    const sourcesEl = document.getElementById("jobs-empty-sources");
+    if (state.tab !== "flux") {
+      sourcesEl.innerHTML = "";
+      return;
+    }
+    try {
+      const data = await Api.getDataSources();
+      sourcesEl.innerHTML = data.sources.map(sourceStatusLine).join("");
+    } catch (e) {
+      sourcesEl.innerHTML = "";
+    }
   }
 
   function renderJobs() {
     if (!state.jobs.length) {
       feedEl.innerHTML = "";
       emptyEl.classList.remove("hidden");
+      renderEmptyState();
     } else {
       emptyEl.classList.add("hidden");
       feedEl.innerHTML = state.jobs.map(jobCard).join("");
@@ -177,12 +254,13 @@
     updateFiltersBadge();
     const f = Filters.read();
     const params = {
-      sector: f.sector,
+      role: f.role,
+      company_type: f.company_type,
       location: f.location,
       min_salary: f.min_salary,
-      score: f.score,
-      status: f.status,
-      path: state.path || undefined,
+      aeronautique: f.aeronautique,
+      enac: f.enac,
+      tab: state.tab,
       limit: PAGE_SIZE,
       offset: (state.page - 1) * PAGE_SIZE,
     };
@@ -193,6 +271,16 @@
       renderJobs();
     } catch (e) {
       toast(`Erreur de chargement : ${e.message}`);
+    }
+  }
+
+  async function loadProfile() {
+    try {
+      const p = await Api.getProfile();
+      document.getElementById("profile-bar").textContent =
+        `${p.name} · Recherche Aéronautique — Cible : ${Math.round(p.target_salary_min / 1000)}-${Math.round(p.target_salary_max / 1000)}k€ CDI — Actuel : ${Math.round(p.current_salary / 1000)}k€ @ ${p.current_company}`;
+    } catch (e) {
+      document.getElementById("profile-bar").textContent = "";
     }
   }
 
@@ -220,17 +308,12 @@
         ? `Médiane marché : ${Math.round(stats.market_median_salary / 1000)}k€`
         : "Médiane marché : -";
 
-      const appliedDeltaEl = document.getElementById("stat-applied-delta");
-      if (stats.applied === 0) {
-        appliedDeltaEl.innerHTML = `<button class="stat-cta" id="stat-applied-cta">Marquer une première candidature →</button>`;
-        document.getElementById("stat-applied-cta").addEventListener("click", () => {
-          document.getElementById("filter-status").value = "new";
-          state.page = 1;
-          loadJobs();
-        });
-      } else {
-        appliedDeltaEl.textContent = `${stats.applied_total} au total`;
-      }
+      document.getElementById("stat-applied-delta").textContent = `${stats.applied_total} au total`;
+
+      document.getElementById("tab-count-flux").textContent = `(${stats.flux_total})`;
+      document.getElementById("tab-count-saved").textContent = `(${stats.saved_total})`;
+      document.getElementById("tab-count-applied").textContent = `(${stats.applied_total})`;
+      document.getElementById("tab-count-rejected").textContent = `(${stats.rejected_total})`;
 
       document.getElementById("sync-status").textContent = `Synchronisé — ${stats.total_jobs} offre(s) aujourd'hui`;
     } catch (e) {
@@ -247,6 +330,34 @@
 
   function statusOption(value, current) {
     return `<option value="${value}" ${value === current ? "selected" : ""}>${STATUS_LABELS[value]}</option>`;
+  }
+
+  function analysisList(items, cssClass) {
+    return `<ul class="${cssClass}">${(items || []).map((i) => `<li>${i}</li>`).join("")}</ul>`;
+  }
+
+  async function renderDecisionWidget(jobId) {
+    const slot = document.getElementById("decision-widget-slot");
+    if (!slot) return; // modal was closed/replaced before this resolved
+    try {
+      const data = await Api.getAnalysis(jobId);
+      slot.outerHTML = `
+        <div class="decision-widget" id="decision-widget-slot">
+          <div class="section-label">Faut-il candidater ?</div>
+          <div class="decision-widget-row"><span>Score global</span><strong class="tnum">${data.score}/100</strong></div>
+          ${data.salary_estimate && data.salary_estimate.min ? `<div class="decision-widget-row"><span>Salaire personnalisé estimé</span><strong class="tnum">${Math.round(data.salary_estimate.min / 1000)}-${Math.round(data.salary_estimate.max / 1000)}k€</strong></div>` : ""}
+          <div class="decision-verdict">${ICONS.check} ${data.advice || ""}</div>
+        </div>
+        <div class="analysis-card">
+          <h4>Avantages</h4>
+          ${analysisList(data.advantages, "advantages")}
+          <h4>Inconvénients</h4>
+          ${analysisList(data.disadvantages, "disadvantages")}
+        </div>
+      `;
+    } catch (e) {
+      slot.textContent = "Analyse indisponible.";
+    }
   }
 
   function openModal(job) {
@@ -270,21 +381,22 @@
       <div class="job-card-chips" style="margin-top:12px;">
         <span class="badge badge-sector">Source : ${job.source || "-"}</span>
         <span class="badge badge-sector">Trouvé le ${job.date_found}</span>
+        ${job.is_aeronautique ? `<span class="badge badge-sector">✈️ Aéronautique</span>` : ""}
         ${job.status !== "new" ? `<span class="status-pill status-${job.status}">${STATUS_LABELS[job.status]}</span>` : ""}
       </div>
       <p style="font-size:14px; line-height:1.65; color:var(--color-text-secondary); margin-top:16px; white-space:pre-line; max-width:68ch;">${job.job_description || "Pas de description disponible."}</p>
       <div style="margin-top:16px;">
         <div class="section-label" style="margin-bottom:8px;">Détail du score</div>
         <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; font-size:12px; color:var(--color-text-secondary);">
-          <div>Salaire : <strong class="tnum">${job.score_salary}</strong>/25</div>
-          <div>Poste : <strong class="tnum">${job.score_job_match}</strong>/30</div>
-          <div>Secteur : <strong class="tnum">${job.score_sector}</strong>/15</div>
-          <div>Localisation : <strong class="tnum">${job.score_location}</strong>/10</div>
-          <div>Notoriété : <strong class="tnum">${job.score_notoriety}</strong>/12</div>
-          <div>Bonus : <strong class="tnum">${job.score_bonus}</strong>/8</div>
+          <div>Rôle : <strong class="tnum">${job.score_job_match}</strong>/30</div>
+          <div>Secteur : <strong class="tnum">${job.score_sector}</strong>/25</div>
+          <div>Entreprise : <strong class="tnum">${job.score_notoriety}</strong>/20</div>
+          <div>Salaire : <strong class="tnum">${job.score_salary}</strong>/20</div>
+          <div>Localisation : <strong class="tnum">${job.score_location}</strong>/5</div>
+          <div>Bonus : <strong class="tnum">${job.score_bonus}</strong>/10</div>
         </div>
       </div>
-      <div id="decision-widget-slot">Chargement de l'analyse dual-path…</div>
+      <div id="decision-widget-slot">Chargement de l'analyse…</div>
 
       <div class="job-card-actions" style="margin-top:20px;">
         <button class="btn btn-primary" data-action="generate" data-id="${job.id}">${ICONS.sparkle} Générer CV &amp; LM</button>
@@ -323,51 +435,6 @@
 
   function closeModal() {
     document.getElementById("job-modal").classList.remove("is-open");
-  }
-
-  function analysisList(items, cssClass) {
-    return `<ul class="${cssClass}">${(items || []).map((i) => `<li>${i}</li>`).join("")}</ul>`;
-  }
-
-  async function renderDecisionWidget(jobId) {
-    const slot = document.getElementById("decision-widget-slot");
-    if (!slot) return; // modal was closed/replaced before this resolved
-    try {
-      const data = await Api.getJobScores(jobId);
-      const { path_a, path_b, recommendation } = data;
-      const leadPath = path_a.score >= path_b.score ? "Path A (Product/AMOA)" : "Path B (Sales Engineer)";
-
-      slot.outerHTML = `
-        <div class="decision-widget" id="decision-widget-slot">
-          <div class="section-label">Should I apply? — Decision helper</div>
-          <div class="decision-widget-row"><span>Path A (Product/AMOA)</span><strong class="tnum">${path_a.score}/100</strong></div>
-          <div class="decision-widget-row"><span>Path B (Sales Engineer)</span><strong class="tnum">${path_b.score}/100</strong></div>
-          <div class="decision-widget-row"><span>Recommandé pour</span><strong>${leadPath}</strong></div>
-          <div class="decision-verdict">${ICONS.check} ${recommendation}</div>
-        </div>
-
-        <div class="path-analysis-grid">
-          <div class="path-analysis-card">
-            <h4>Path A · Product/AMOA</h4>
-            <div class="section-label">Avantages</div>
-            ${analysisList(path_a.advantages, "advantages")}
-            <div class="section-label">Inconvénients</div>
-            ${analysisList(path_a.disadvantages, "disadvantages")}
-            <div class="advice">${path_a.advice || ""}</div>
-          </div>
-          <div class="path-analysis-card">
-            <h4>Path B · Sales Engineer</h4>
-            <div class="section-label">Avantages</div>
-            ${analysisList(path_b.advantages, "advantages")}
-            <div class="section-label">Inconvénients</div>
-            ${analysisList(path_b.disadvantages, "disadvantages")}
-            <div class="advice">${path_b.advice || ""}</div>
-          </div>
-        </div>
-      `;
-    } catch (e) {
-      slot.textContent = "Analyse dual-path indisponible.";
-    }
   }
 
   function barRow(label, value, maxValue, valueLabel) {
@@ -426,94 +493,6 @@
     }
   }
 
-  function starRating(pct) {
-    const filled = Math.max(1, Math.round(pct / 20));
-    return "★".repeat(filled) + "☆".repeat(5 - filled);
-  }
-
-  async function openComparison() {
-    const modal = document.getElementById("job-modal");
-    document.getElementById("modal-content").innerHTML = `<p>Chargement de la comparaison…</p>`;
-    modal.classList.add("is-open");
-    try {
-      const s = await Api.getPathStats();
-      const fp = s.financial_projection;
-      document.getElementById("modal-content").innerHTML = `
-        <h2 style="font-size:20px; font-weight:700; margin:0 0 4px; color:var(--color-text-primary);">Career Path Comparison</h2>
-        <p style="font-size:12px; color:var(--color-text-tertiary); margin:0 0 20px;">Path A (Product/AMOA) vs Path B (Sales Engineer) — ${s.cross_fit_count} offre(s) cross-fit</p>
-        <div class="comparison-grid">
-          <div class="comparison-card">
-            <div class="section-label">Path A · Product/AMOA</div>
-            <div class="n tnum">${s.path_a.count}</div>
-            <div style="font-size:12px; color:var(--color-text-tertiary);">opportunités (score &gt; 50)</div>
-            <table class="comparison-table">
-              <tr><td>Score moyen</td><td>${s.path_a.avg_score}/100</td></tr>
-              <tr><td>Salaire moyen</td><td>${s.path_a.avg_salary ? Math.round(s.path_a.avg_salary / 1000) + "k€" : "-"}</td></tr>
-              <tr><td>Projection an 1</td><td>${fp.path_a.year_1}</td></tr>
-              <tr><td>Projection an 3</td><td>${fp.path_a.year_3}</td></tr>
-            </table>
-          </div>
-          <div class="comparison-card">
-            <div class="section-label">Path B · Sales Engineer</div>
-            <div class="n tnum">${s.path_b.count}</div>
-            <div style="font-size:12px; color:var(--color-text-tertiary);">opportunités (score &gt; 50)</div>
-            <table class="comparison-table">
-              <tr><td>Score moyen</td><td>${s.path_b.avg_score}/100</td></tr>
-              <tr><td>Salaire moyen</td><td>${s.path_b.avg_salary ? Math.round(s.path_b.avg_salary / 1000) + "k€" : "-"}</td></tr>
-              <tr><td>Projection an 1</td><td>${fp.path_b.year_1}</td></tr>
-              <tr><td>Projection an 3</td><td>${fp.path_b.year_3}</td></tr>
-            </table>
-          </div>
-        </div>
-        <p style="font-size:13px; color:var(--color-text-secondary); margin-top:16px;">
-          ${fp.path_a.profile} (Path A) vs ${fp.path_b.profile} (Path B).
-        </p>
-      `;
-    } catch (e) {
-      document.getElementById("modal-content").innerHTML = `<p>Erreur de chargement : ${e.message}</p>`;
-    }
-  }
-
-  function advisorPathCard(path) {
-    return `
-      <div class="advisor-path-card">
-        <h4><span>${path.label}</span><span class="advisor-stars">${starRating(path.recommendation_pct)}</span></h4>
-        <div class="section-label">Avantages</div>
-        ${analysisList(path.pros, "advantages")}
-        <div class="section-label">Inconvénients</div>
-        ${analysisList(path.cons, "disadvantages")}
-        <div class="advisor-meta">
-          Timeline : ${path.timeline} · Risque : ${path.risk} · Recommandé à ${path.recommendation_pct}%<br>
-          ${path.current_opportunities} offre(s) actuellement, score moyen ${path.avg_score}/100
-        </div>
-      </div>
-    `;
-  }
-
-  async function openAdvisor() {
-    const modal = document.getElementById("job-modal");
-    document.getElementById("modal-content").innerHTML = `<p>Chargement du conseiller carrière…</p>`;
-    modal.classList.add("is-open");
-    try {
-      const advice = await Api.getCareerAdvice();
-      document.getElementById("modal-content").innerHTML = `
-        <h2 style="font-size:20px; font-weight:700; margin:0 0 8px; color:var(--color-text-primary);">Career Advisor</h2>
-        <p style="font-size:13px; color:var(--color-text-secondary); margin:0 0 20px;">${advice.current_thinking}</p>
-        ${advisorPathCard(advice.path_a)}
-        ${advisorPathCard(advice.path_b)}
-        <div class="advisor-path-card" style="background:var(--color-primary-subtle); border-color:var(--color-primary);">
-          <h4><span>Hybrid strategy${advice.hybrid_strategy.recommended ? " (recommandée)" : ""}</span></h4>
-          ${analysisList(advice.hybrid_strategy.steps, "advantages")}
-          <div class="section-label">Pourquoi c'est sûr</div>
-          ${analysisList(advice.hybrid_strategy.why_safe, "advantages")}
-        </div>
-        <div class="decision-verdict" style="display:block;">${advice.decision_prompt}</div>
-      `;
-    } catch (e) {
-      document.getElementById("modal-content").innerHTML = `<p>Erreur de chargement : ${e.message}</p>`;
-    }
-  }
-
   async function handleGenerate(jobId, btn) {
     const original = btn.innerHTML;
     btn.disabled = true;
@@ -539,6 +518,44 @@
     try {
       await Api.apply(jobId);
       toast("Offre marquée comme candidatée");
+      await loadJobs();
+      await loadStats();
+    } catch (e) {
+      toast(`Erreur : ${e.message}`);
+    }
+  }
+
+  async function handleSave(jobId) {
+    try {
+      await Api.saveJob(jobId);
+      toast("Offre sauvegardée");
+      await loadJobs();
+      await loadStats();
+    } catch (e) {
+      toast(`Erreur : ${e.message}`);
+    }
+  }
+
+  function handleRejectToggle(jobId) {
+    const picker = document.getElementById(`reject-picker-${jobId}`);
+    if (picker) picker.classList.toggle("hidden");
+  }
+
+  async function handleRejectConfirm(jobId, reason) {
+    try {
+      await Api.rejectJob(jobId, reason);
+      toast("Offre rejetée");
+      await loadJobs();
+      await loadStats();
+    } catch (e) {
+      toast(`Erreur : ${e.message}`);
+    }
+  }
+
+  async function handleRestore(jobId) {
+    try {
+      await Api.setStatus(jobId, "new");
+      toast("Offre restaurée dans le flux");
       await loadJobs();
       await loadStats();
     } catch (e) {
@@ -624,23 +641,20 @@
   function bindEvents() {
     document.getElementById("btn-refresh").addEventListener("click", handleRefresh);
     document.getElementById("btn-insights").addEventListener("click", openInsights);
-    document.getElementById("btn-comparison").addEventListener("click", openComparison);
-    document.getElementById("btn-advisor").addEventListener("click", openAdvisor);
-    document.querySelectorAll(".path-tab").forEach((tab) => {
+    document.querySelectorAll(".nav-tab").forEach((tab) => {
       tab.addEventListener("click", () => {
-        document.querySelectorAll(".path-tab").forEach((t) => {
+        document.querySelectorAll(".nav-tab").forEach((t) => {
           t.classList.remove("is-active");
           t.setAttribute("aria-selected", "false");
         });
         tab.classList.add("is-active");
         tab.setAttribute("aria-selected", "true");
-        state.path = tab.dataset.path;
+        state.tab = tab.dataset.tab;
         state.page = 1;
         loadJobs();
       });
     });
     document.getElementById("card-top-matches").addEventListener("click", () => {
-      document.getElementById("filter-score").value = "top";
       state.page = 1;
       loadJobs();
     });
@@ -673,23 +687,17 @@
       if (e.key === "Escape" && document.getElementById("job-modal").classList.contains("is-open")) closeModal();
     });
 
-    ["filter-sector", "filter-location"].forEach((id) => {
+    ["filter-role", "filter-company", "filter-location"].forEach((id) => {
       document.getElementById(id).addEventListener("change", () => {
         state.page = 1;
         loadJobs();
       });
     });
-    document.getElementById("filter-salary").addEventListener("change", () => {
-      state.page = 1;
-      loadJobs();
-    });
-    document.getElementById("filter-score").addEventListener("change", () => {
-      state.page = 1;
-      loadJobs();
-    });
-    document.getElementById("filter-status").addEventListener("change", () => {
-      state.page = 1;
-      loadJobs();
+    ["filter-salary", "filter-aero", "filter-enac"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", () => {
+        state.page = 1;
+        loadJobs();
+      });
     });
 
     document.body.addEventListener("click", async (e) => {
@@ -703,6 +711,14 @@
         handleGenerate(jobId, el);
       } else if (el.dataset.action === "apply") {
         handleApply(jobId);
+      } else if (el.dataset.action === "save") {
+        handleSave(jobId);
+      } else if (el.dataset.action === "reject-toggle" || el.dataset.action === "reject-cancel") {
+        handleRejectToggle(jobId);
+      } else if (el.dataset.action === "reject-confirm") {
+        handleRejectConfirm(jobId, el.dataset.reason);
+      } else if (el.dataset.action === "restore") {
+        handleRestore(jobId);
       } else if (el.dataset.action === "copy-link") {
         handleCopyLink(el.dataset.url);
       } else if (el.dataset.action === "save-status") {
@@ -714,6 +730,7 @@
   document.addEventListener("DOMContentLoaded", () => {
     Filters.bindSalarySlider();
     bindEvents();
+    loadProfile();
     loadJobs();
     loadStats();
   });

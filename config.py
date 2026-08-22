@@ -15,6 +15,8 @@ CANDIDATE = {
     "email": "abouamrene@gmail.com",
     "phone": "06 65 46 70 56",
     "linkedin": LINKEDIN_URL,
+    "current_salary": 56000,
+    "current_company": "TNP Consultants (mission SNCF Gares & Connexions)",
     "title_default": "Product Owner | AMOA Consultant | SAFe & PSPO I Certified",
     "profile_summary_default": (
         "Product Owner avec 3 ans d'experience en pilotage de solutions digitales "
@@ -135,10 +137,16 @@ SEARCH_CRITERIA = {
     "salary_target_low": 68000,
     "salary_target_high": 75000,
     "salary_acceptable_min": 60000,
-    "locations_preferred": ["mixte", "remote", "ile-de-france", "idf", "paris", "france"],
+    # What Amine can realistically ask for given his real profile (ENAC +
+    # 3 years Product/AMOA + aeronautique specialism), not the generic
+    # market average of scraped postings - see scorer.estimate_salary().
+    "salary_target_min": 95000,
+    "salary_target_max": 110000,
+    "locations_preferred": ["mixte", "remote", "ile-de-france", "idf", "paris",
+                              "toulouse", "france"],
     "sectors_priority": [
-        "conseil", "tech", "saas", "industrie", "energie", "utilities",
-        "finance", "insurtech",
+        "aeronautique", "conseil", "tech", "saas", "industrie", "energie",
+        "utilities", "finance", "insurtech",
     ],
     "roles": [
         "product owner", "product manager", "amoa", "programme manager",
@@ -149,34 +157,38 @@ SEARCH_CRITERIA = {
 }
 
 SEARCH_KEYWORDS = [
-    # Path A - Product / AMOA
     "Product Owner", "AMOA", "Programme Manager", "Agile", "Transformation",
-    # Path B - Sales Engineer / Solutions Architect (exploration path, see
-    # scorer_paths.py - searched with equal priority to Path A, never
-    # deprioritized, per the dual-path brief).
-    "Sales Engineer", "Solutions Architect", "Solutions Engineer",
-    "Technical Account Manager",
 ]
 
 # ---------------------------------------------------------------------------
-# Dual career path exploration (V3): Path A = Product/AMOA (secure, founder
-# potential), Path B = Sales Engineer/Solutions Architect (higher ceiling,
-# variable comp, revenue-side learning). See scorer_paths.py for the scoring
-# rubric and analysis_generator.py for the advantages/disadvantages/advice
-# generated from these company tiers.
+# Aeronautique focus (V5): the dashboard's default lens. AERO_COMPANIES
+# feeds both the scoring bonus (scorer.py) and the "is_aeronautique" /
+# "company_type" flags stored per job. ENAC_KEYWORDS flags postings that
+# call out ENAC (or an ENAC-adjacent formation) as a plus - a strong signal
+# this employer values Amine's exact background.
 # ---------------------------------------------------------------------------
-PATH_B_TARGET_COMPANIES = {
-    # High-growth SaaS - the best "sales engineering bootcamp" companies.
-    "tier1_high_growth_saas": [
-        "stripe", "figma", "linear", "retool", "clerk", "framer",
-    ],
-    # Scaling SaaS Amine already has visibility into via the French market.
-    "tier2_scaling_saas": ["qonto", "swile", "alan", "wise"],
-    # Enterprise SaaS - large, more process-heavy sales orgs.
-    "tier3_enterprise_saas": [
-        "salesforce", "hubspot", "atlassian", "notion", "monday", "monday.com",
-    ],
+AERO_COMPANIES = {
+    # Exact scoring per company (spec's own priority order).
+    "airbus": 20,
+    "thales": 20,
+    "safran": 19,
+    "dassault": 18,
+    "dassault aviation": 18,
+    "dassault systemes": 18,
+    "dassault systèmes": 18,
 }
+AERO_COMPANIES_OTHER = [
+    # Recognized aero/defense employers without an individually-tuned
+    # score - fall back to the "Autre BigCo aero" bonus tier.
+    "ariane group", "arianegroup", "thales alenia space", "zodiac aerospace",
+    "safran aircraft engines", "joby", "joby aviation", "lilium", "embraer",
+    "boeing", "collins aerospace", "liebherr aerospace", "latecoere",
+    "latécoère", "stelia", "figeac aero", "figeac aéro", "daher",
+    "air france", "air france industries", "aeroport", "aéroport", "adp",
+    "onera", "cnes",
+]
+ENAC_KEYWORDS = ["enac", "ecole nationale de l'aviation civile",
+                  "école nationale de l'aviation civile"]
 
 # Maps each sector filter checkbox to the keywords it should match against
 # (sector + title + description). Real postings (e.g. France Travail's
@@ -192,6 +204,15 @@ SECTOR_FILTER_KEYWORDS = {
     "Energie": ["energie", "énergie", "utilities", "environnement"],
     "Finance": ["finance", "banque", "bancaire", "financier"],
     "Insurtech": ["assurance", "insurtech", "mutuelle"],
+}
+
+# Maps each role filter checkbox to the keywords it should match against
+# job_title - mirrors SECTOR_FILTER_KEYWORDS's fuzzy-grouping approach.
+ROLE_FILTER_KEYWORDS = {
+    "Product Manager": ["product manager"],
+    "Product Owner": ["product owner"],
+    "AMOA": ["amoa"],
+    "Programme Manager": ["programme manager", "program manager"],
 }
 
 NOTABLE_COMPANIES = {

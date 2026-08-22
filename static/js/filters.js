@@ -11,26 +11,26 @@ const Filters = (() => {
   }
 
   function read() {
-    // All boxes checked (the default) means "no preference" - send no
-    // filter at all rather than an exhaustive allow-list, since real-world
-    // sector/location text is far more varied than these few checkboxes.
+    // All boxes checked (the default) means "no preference" for role/company/
+    // location - send no filter at all rather than an exhaustive allow-list.
     return {
-      sector: allChecked("filter-sector") ? [] : checkedValues("filter-sector"),
+      role: allChecked("filter-role") ? [] : checkedValues("filter-role"),
+      company_type: allChecked("filter-company") ? [] : checkedValues("filter-company"),
       location: allChecked("filter-location") ? [] : checkedValues("filter-location"),
       min_salary: document.getElementById("filter-salary").value,
-      score: document.getElementById("filter-score").value,
-      status: document.getElementById("filter-status").value,
+      aeronautique: document.getElementById("filter-aero").checked ? "true" : "false",
+      enac: document.getElementById("filter-enac").checked ? "true" : "false",
     };
   }
 
   function reset() {
-    document.querySelectorAll("#filter-sector input, #filter-location input").forEach((el) => {
+    document.querySelectorAll("#filter-role input, #filter-company input, #filter-location input").forEach((el) => {
       el.checked = true;
     });
-    document.getElementById("filter-salary").value = 60000;
-    document.getElementById("filter-salary-value").textContent = "60 000€";
-    document.getElementById("filter-score").value = "all";
-    document.getElementById("filter-status").value = "all";
+    document.getElementById("filter-salary").value = 85000;
+    document.getElementById("filter-salary-value").textContent = "85 000 €";
+    document.getElementById("filter-aero").checked = true;
+    document.getElementById("filter-enac").checked = false;
   }
 
   function bindSalarySlider() {
@@ -43,11 +43,12 @@ const Filters = (() => {
 
   function countActive() {
     let n = 0;
-    if (!allChecked("filter-sector")) n += 1;
+    if (!allChecked("filter-role")) n += 1;
+    if (!allChecked("filter-company")) n += 1;
     if (!allChecked("filter-location")) n += 1;
-    if (Number(document.getElementById("filter-salary").value) > 60000) n += 1;
-    if (document.getElementById("filter-score").value !== "all") n += 1;
-    if (document.getElementById("filter-status").value !== "all") n += 1;
+    if (Number(document.getElementById("filter-salary").value) > 85000) n += 1;
+    if (!document.getElementById("filter-aero").checked) n += 1;
+    if (document.getElementById("filter-enac").checked) n += 1;
     return n;
   }
 

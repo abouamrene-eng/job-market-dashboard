@@ -8,7 +8,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
-from config import DB_PATH, SECTOR_FILTER_KEYWORDS
+from config import DB_PATH, ROLE_FILTER_KEYWORDS, SECTOR_FILTER_KEYWORDS
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -42,21 +42,25 @@ CREATE INDEX IF NOT EXISTS idx_jobs_score ON jobs(score DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_date_found ON jobs(date_found);
 """
 
-# V3 dual-path columns, added via migration rather than the base SCHEMA so
-# a database created by an older deploy gets upgraded in place instead of
-# needing a wipe. ALTER TABLE ADD COLUMN has no "IF NOT EXISTS" in SQLite,
-# hence the try/except-per-column below.
-PATH_COLUMNS = [
-    ("path_a_score", "INTEGER DEFAULT 0"),
-    ("path_b_score", "INTEGER DEFAULT 0"),
-    ("path_a_analysis", "TEXT"),
-    ("path_b_analysis", "TEXT"),
-    ("primary_path", "TEXT DEFAULT 'both'"),
+# V5 columns (aeronautique focus - replaces V3's dual Path A/B columns,
+# left unused rather than dropped since SQLite can't cheaply drop columns).
+# Added via migration rather than the base SCHEMA so a database created by
+# an older deploy gets upgraded in place instead of needing a wipe.
+# ALTER TABLE ADD COLUMN has no "IF NOT EXISTS" in SQLite, hence the
+# try/except-per-column below.
+V5_COLUMNS = [
+    ("is_aeronautique", "INTEGER DEFAULT 0"),
+    ("enac_mentioned", "INTEGER DEFAULT 0"),
+    ("company_type", "TEXT"),
+    ("analysis", "TEXT"),
+    ("reject_reason", "TEXT"),
+    ("salary_estimate_min", "INTEGER"),
+    ("salary_estimate_max", "INTEGER"),
 ]
 
 
-def _migrate_path_columns(conn):
-    for name, coltype in PATH_COLUMNS:
+def _migrate_v5_columns(conn):
+    for name, coltype in V5_COLUMNS:
         try:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {name} {coltype}")
         except sqlite3.OperationalError:
@@ -78,7 +82,7 @@ def get_conn():
 def init_db():
     with get_conn() as conn:
         conn.executescript(SCHEMA)
-        _migrate_path_columns(conn)
+        _migrate_v5_columns(conn)
 
 
 def upsert_job(job: dict) -> str:
@@ -101,8 +105,9 @@ def upsert_job(job: dict) -> str:
                 id, date_found, job_title, company, location, sector,
                 salary_min, salary_max, job_url, job_description, source,
                 score, score_salary, score_job_match, score_sector,
-                score_location, score_notoriety, score_bonus, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                score_location, score_notoriety, score_bonus, status,
+                is_aeronautique, enac_mentioned, company_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id,
@@ -124,6 +129,9 @@ def upsert_job(job: dict) -> str:
                 job.get("score_notoriety", 0),
                 job.get("score_bonus", 0),
                 job.get("status", "new"),
+                int(job.get("is_aeronautique", False)),
+                int(job.get("enac_mentioned", False)),
+                job.get("company_type", "Autre"),
             ),
         )
         return job_id
@@ -131,13 +139,17 @@ def upsert_job(job: dict) -> str:
 
 def get_jobs(
     sector=None,
+    role=None,
     min_salary=None,
     max_salary=None,
     score_tier=None,
     locations=None,
     status=None,
+    status_in=None,
+    company_type=None,
+    only_aeronautique=False,
+    only_enac=False,
     date_found=None,
-    path=None,
     limit=50,
     offset=0,
 ):
@@ -159,6 +171,15 @@ def get_jobs(
                 )
                 params.extend([f"%{kw.lower()}%"] * 3)
         query += f" AND ({' OR '.join(sector_clauses)})"
+    if role:
+        # Fuzzy match against job_title only - role checkboxes map to
+        # fairly specific titles, unlike the broader sector matching above.
+        role_clauses = []
+        for sel in role:
+            for kw in ROLE_FILTER_KEYWORDS.get(sel, [sel.lower()]):
+                role_clauses.append("LOWER(job_title) LIKE ?")
+                params.append(f"%{kw.lower()}%")
+        query += f" AND ({' OR '.join(role_clauses)})"
     if min_salary:
         query += " AND (salary_max IS NULL OR salary_max >= ?)"
         params.append(min_salary)
@@ -176,9 +197,18 @@ def get_jobs(
     if status:
         query += " AND status = ?"
         params.append(status)
+    if status_in:
+        query += f" AND status IN ({','.join('?' for _ in status_in)})"
+        params.extend(status_in)
+    if company_type:
+        query += f" AND company_type IN ({','.join('?' for _ in company_type)})"
+        params.extend(company_type)
+    if only_aeronautique:
+        query += " AND is_aeronautique = 1"
+    if only_enac:
+        query += " AND enac_mentioned = 1"
 
-    order_column = {"a": "path_a_score", "b": "path_b_score"}.get(path, "score")
-    query += f" ORDER BY {order_column} DESC LIMIT ? OFFSET ?"
+    query += " ORDER BY score DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
     with get_conn() as conn:
@@ -191,17 +221,6 @@ def count_jobs(**filters):
     filters.pop("offset", None)
     jobs = get_jobs(limit=1_000_000, offset=0, **filters)
     return len(jobs)
-
-
-def has_only_demo_jobs():
-    """True if every job currently stored came from the seed/demo
-    fallback - i.e. no real source has ever populated the database (a
-    fresh boot on ephemeral storage, most likely)."""
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) c FROM jobs WHERE source != 'Seed/Demo'"
-        ).fetchone()
-        return row["c"] == 0
 
 
 def get_job(job_id: str):
@@ -226,17 +245,6 @@ def update_job(job_id: str, **fields):
         conn.execute(f"UPDATE jobs SET {set_clause} WHERE id = ?", params)
 
 
-def delete_jobs_by_source(source: str, exclude_applied: bool = True):
-    """Removes demo/seed postings once real sources start delivering
-    enough results, so they stop competing with real offers. Never
-    deletes a job the user has already applied to / tracked, even if it
-    was a demo posting."""
-    query = "DELETE FROM jobs WHERE source = ?"
-    params = [source]
-    if exclude_applied:
-        query += " AND status = 'new'"
-    with get_conn() as conn:
-        conn.execute(query, params)
 
 
 def get_daily_stats(day=None):
@@ -268,7 +276,19 @@ def get_daily_stats(day=None):
             "SELECT COUNT(*) c FROM jobs WHERE date_applied = ?", (day,)
         ).fetchone()["c"]
         applied_total = conn.execute(
-            "SELECT COUNT(*) c FROM jobs WHERE status != 'new'"
+            "SELECT COUNT(*) c FROM jobs WHERE status IN ('applied','interview','offer')"
+        ).fetchone()["c"]
+        saved_total = conn.execute(
+            "SELECT COUNT(*) c FROM jobs WHERE status = 'saved'"
+        ).fetchone()["c"]
+        rejected_total = conn.execute(
+            "SELECT COUNT(*) c FROM jobs WHERE status = 'rejected'"
+        ).fetchone()["c"]
+        aero_total = conn.execute(
+            "SELECT COUNT(*) c FROM jobs WHERE is_aeronautique = 1 AND status = 'new'"
+        ).fetchone()["c"]
+        flux_total = conn.execute(
+            "SELECT COUNT(*) c FROM jobs WHERE status = 'new'"
         ).fetchone()["c"]
         return {
             "total_jobs": total,
@@ -278,6 +298,10 @@ def get_daily_stats(day=None):
             "top_matches": top_matches,
             "applied": applied,
             "applied_total": applied_total,
+            "saved_total": saved_total,
+            "rejected_total": rejected_total,
+            "aero_total": aero_total,
+            "flux_total": flux_total,
         }
 
 
@@ -314,30 +338,3 @@ def get_insights():
         }
 
 
-def get_path_stats(threshold: int = 50):
-    """Aggregate counts/avg score/avg salary for jobs that are a reasonable
-    fit (score > threshold) for each career path - powers the V3 Path
-    Comparison view and the 'Path A: X jobs, avg score XX' stat line."""
-    with get_conn() as conn:
-        def _path_row(score_column):
-            row = conn.execute(
-                f"""SELECT COUNT(*) count, AVG({score_column}) avg_score,
-                           AVG(salary_max) avg_salary
-                    FROM jobs WHERE {score_column} > ?""",
-                (threshold,),
-            ).fetchone()
-            return {
-                "count": row["count"] or 0,
-                "avg_score": round(row["avg_score"] or 0),
-                "avg_salary": round(row["avg_salary"] or 0),
-            }
-
-        cross_fit = conn.execute(
-            "SELECT COUNT(*) c FROM jobs WHERE primary_path = 'both'"
-        ).fetchone()["c"]
-
-        return {
-            "path_a": _path_row("path_a_score"),
-            "path_b": _path_row("path_b_score"),
-            "cross_fit_count": cross_fit,
-        }

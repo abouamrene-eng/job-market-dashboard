@@ -22,14 +22,13 @@ functions below are written defensively (short timeouts, retries, a real
 User-Agent, best-effort parsing) but are expected to return few or zero
 results in most environments - that is normal, not a bug: it's exactly
 the "N/9 sources ok" case this module is built to degrade into gracefully.
-When live sources under-deliver, `run_daily_scrape()` tops up the feed
-with `generate_seed_jobs()` so the dashboard stays usable for demoing the
-scoring/CV/letter flow - those demo postings link out to a live Google
-search for the role instead of a dead URL.
+
+V5: no demo/seed fallback anymore - an empty or thin feed is shown as-is
+(with a clear "no results" message in the UI) rather than padded with
+fake postings, per the "real data only" requirement.
 """
 import logging
 import os
-import random
 import re
 import time
 import unicodedata
@@ -67,7 +66,7 @@ PARALLEL_SOURCES = 4
 
 ALLOWED_SOURCES = {
     "France Travail", "Indeed", "LinkedIn", "WTTJ", "Glassdoor", "Consulting.fr",
-    "RegionsJob", "StepStone", "Talent.com", "Jooble", "Seed/Demo",
+    "RegionsJob", "StepStone", "Talent.com", "Jooble",
 }
 
 
@@ -108,13 +107,6 @@ def _request_with_retry(url, params=None, max_retries=MAX_RETRIES):
 
     logger.error("max retries exceeded for %s", url)
     return None
-
-
-def _demo_search_url(job_title: str, company: str) -> str:
-    """A real, working link for seed/demo postings (no official URL exists)
-    instead of a dead placeholder - a live search for the role."""
-    query = urllib.parse.quote_plus(f"{job_title} {company} offre d'emploi")
-    return f"https://www.google.com/search?q={query}"
 
 
 def _normalize_url(url: str) -> str:
@@ -675,193 +667,6 @@ SECONDARY_SOURCES = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Seed / demo data - realistic French postings matching the search criteria.
-# Used to top up the feed whenever live scraping returns too little (which,
-# given anti-bot protections on the primary sources, is the common case).
-# job_url points to a live Google search for the role so the "Voir
-# l'offre" button always resolves to something real.
-# ---------------------------------------------------------------------------
-_SEED_TEMPLATES = [
-    {
-        "job_title": "Product Owner - Transformation Digitale",
-        "company": "Capgemini",
-        "location": "Paris / Remote (mixte)",
-        "sector": "Conseil",
-        "salary_min": 68000, "salary_max": 78000,
-        "job_description": (
-            "Nous recherchons un Product Owner certifie PSPO pour piloter la "
-            "vision produit d'une plateforme utilisee par des milliers "
-            "d'utilisateurs. Vous animerez les ceremonies agiles SAFe/SCRUM, "
-            "redigerez les user stories et piloterez la conduite du "
-            "changement aupres des utilisateurs finaux."
-        ),
-    },
-    {
-        "job_title": "AMOA Consultant - Programme SAFe",
-        "company": "Accenture",
-        "location": "Ile-de-France (3j bureau)",
-        "sector": "Conseil",
-        "salary_min": 66000, "salary_max": 74000,
-        "job_description": (
-            "En tant qu'AMOA Consultant, vous piloterez un programme de "
-            "transformation multi-equipes en environnement SAFe. Management "
-            "d'une equipe AMOA/MOE, gestion de la donnee, reporting KPI."
-        ),
-    },
-    {
-        "job_title": "Senior Product Manager - SaaS B2B",
-        "company": "Alan",
-        "location": "Remote",
-        "sector": "Tech",
-        "salary_min": 70000, "salary_max": 85000,
-        "job_description": (
-            "Scale-up en forte croissance recherche un Product Manager pour "
-            "porter la roadmap d'un produit SaaS B2B. Environnement agile, "
-            "cycles courts, equity attractive."
-        ),
-    },
-    {
-        "job_title": "Agile Coach - SAFe Practitioner",
-        "company": "Societe Generale",
-        "location": "Paris (hybride)",
-        "sector": "Finance",
-        "salary_min": 65000, "salary_max": 72000,
-        "job_description": (
-            "Nous recherchons un Agile Coach experimente SAFe pour coacher "
-            "plusieurs equipes produit, animer les ceremonies et accompagner "
-            "la conduite du changement dans un contexte bancaire."
-        ),
-    },
-    {
-        "job_title": "Programme Manager - Transformation Industrielle",
-        "company": "Thales",
-        "location": "Toulouse / Remote partiel",
-        "sector": "Industrie",
-        "salary_min": 69000, "salary_max": 80000,
-        "job_description": (
-            "Poste de Programme Manager pour piloter la transformation "
-            "digitale d'un site industriel aeronautique et defense. Un "
-            "diplome ingenieur (ENAC apprecie) et une premiere experience "
-            "GMAO sont un plus."
-        ),
-    },
-    {
-        "job_title": "Business Analyst - Insurtech",
-        "company": "Alan Health",
-        "location": "Remote",
-        "sector": "Insurtech",
-        "salary_min": 62000, "salary_max": 70000,
-        "job_description": (
-            "Business Analyst pour accompagner une equipe produit agile sur "
-            "des sujets de donnees et reporting KPI dans une insurtech en "
-            "croissance internationale."
-        ),
-    },
-    {
-        "job_title": "Product Owner GMAO / Maintenance",
-        "company": "Veolia",
-        "location": "Ile-de-France",
-        "sector": "Energie",
-        "salary_min": 64000, "salary_max": 71000,
-        "job_description": (
-            "Product Owner pour une solution GMAO deployee a l'echelle "
-            "nationale. Vision produit, formation des utilisateurs, "
-            "pilotage agile SCRUM."
-        ),
-    },
-    {
-        "job_title": "Consultant Transformation Digitale",
-        "company": "McKinsey & Company",
-        "location": "Paris",
-        "sector": "Conseil",
-        "salary_min": 72000, "salary_max": 90000,
-        "job_description": (
-            "Consultant pour accompagner de grands comptes CAC40 dans leur "
-            "transformation digitale et agile a l'echelle internationale."
-        ),
-    },
-    # Path B - Sales Engineer / Solutions Architect (exploration path, see
-    # scorer_paths.py). France Travail rarely surfaces these high-growth
-    # SaaS postings, so a few realistic seeds keep the dual-path feature
-    # populated even without live scraping.
-    {
-        "job_title": "Sales Engineer",
-        "company": "Stripe",
-        "location": "Remote",
-        "sector": "Tech",
-        "salary_min": 85000, "salary_max": 85000,
-        "job_description": (
-            "Rejoignez Stripe en tant que Sales Engineer pour accompagner les "
-            "equipes commerciales sur les integrations techniques des plus "
-            "grands comptes. Remote-first, forte croissance, part variable de "
-            "30k a 50k selon performance. Vous travaillerez sur les APIs de "
-            "paiement et l'ecosysteme fintech le plus avance du marche."
-        ),
-    },
-    {
-        "job_title": "Solutions Architect",
-        "company": "Figma",
-        "location": "Remote (Europe)",
-        "sector": "Tech",
-        "salary_min": 90000, "salary_max": 90000,
-        "job_description": (
-            "Solutions Architect pour accompagner les clients enterprise de "
-            "Figma dans leur adoption produit. Culture commerciale forte, "
-            "hypercroissance, variable de 20k a 35k. Anglais courant requis."
-        ),
-    },
-    {
-        "job_title": "Solutions Engineer",
-        "company": "Linear",
-        "location": "Remote",
-        "sector": "Tech",
-        "salary_min": 88000, "salary_max": 88000,
-        "job_description": (
-            "Linear recherche un Solutions Engineer pour le pre-sales "
-            "technique aupres d'equipes produit. Scale-up en forte "
-            "croissance, variable jusqu'a 25k, remote total."
-        ),
-    },
-    {
-        "job_title": "Technical Account Manager",
-        "company": "Salesforce",
-        "location": "Paris / Hybride",
-        "sector": "Tech",
-        "salary_min": 92000, "salary_max": 92000,
-        "job_description": (
-            "Technical Account Manager pour accompagner les plus grands "
-            "comptes Salesforce en France. Vente enterprise structuree, OTE "
-            "avec part variable significative, quota ambitieux."
-        ),
-    },
-    {
-        "job_title": "Sales Engineer",
-        "company": "Qonto",
-        "location": "Paris / Remote",
-        "sector": "Fintech",
-        "salary_min": 78000, "salary_max": 78000,
-        "job_description": (
-            "Qonto recherche un Sales Engineer pour soutenir l'equipe "
-            "commerciale sur les integrations API bancaires. Scale-up "
-            "francaise en forte croissance, variable de 15k a 25k."
-        ),
-    },
-]
-
-
-def generate_seed_jobs(n=8):
-    jobs = []
-    today = date.today().isoformat()
-    for tmpl in random.sample(_SEED_TEMPLATES, min(n, len(_SEED_TEMPLATES))):
-        job = dict(tmpl)
-        job["id"] = str(uuid.uuid4())
-        job["date_found"] = today
-        job["source"] = "Seed/Demo"
-        job["job_url"] = _demo_search_url(job["job_title"], job["company"])
-        jobs.append(job)
-    return jobs
-
 
 def _run_one_source(source_fn):
     """Runs a single source across all keywords, bounded by
@@ -883,11 +688,11 @@ def _run_one_source(source_fn):
     return source_name, jobs, error
 
 
-def run_daily_scrape(min_results=6, progress_cb=None, include_secondary=False):
+def run_daily_scrape(progress_cb=None, include_secondary=False):
     """Runs PRIMARY_SOURCES (and SECONDARY_SOURCES too if include_secondary
-    is set) concurrently, validates and deduplicates the results, tops up
-    with seed data if needed, and returns (jobs, run_log). run_log mirrors
-    the per-source counters the improvement spec asks for logged
+    is set) concurrently, validates and deduplicates the results, and
+    returns (jobs, run_log) - real results only, no demo top-up. run_log
+    mirrors the per-source counters the improvement spec asks for logged
     (found/duplicates/saved/errors) and is what the async refresh
     endpoint exposes as progress.
 
@@ -965,32 +770,6 @@ def run_daily_scrape(min_results=6, progress_cb=None, include_secondary=False):
         logger.info("%s: %d found, %d duplicates, %d saved, %d rejected, %d excluded%s",
                      source_name, found, duplicates, validated, rejected, excluded,
                      f" - ERROR: {error}" if error else "")
-
-    if len(all_valid_jobs) < min_results:
-        needed = min_results - len(all_valid_jobs)
-        seed_jobs = generate_seed_jobs(min(needed + 2, len(_SEED_TEMPLATES)))
-        seed_kept = []
-        for job in seed_jobs:
-            job = _clean_job(job)
-            ok, _ = validate_job(job)
-            if not ok:
-                continue
-            ok, _ = meets_candidate_criteria(job)
-            if not ok:
-                continue
-            url_key = _normalize_url(job["job_url"])
-            title_company_key = (job["job_title"].strip().lower(), job["company"].strip().lower())
-            if url_key in seen_urls or title_company_key in seen_title_company:
-                continue
-            seen_urls.add(url_key)
-            seen_title_company.add(title_company_key)
-            seed_kept.append(job)
-        all_valid_jobs.extend(seed_kept)
-        run_log["sources"]["Seed/Demo"] = {
-            "found": len(seed_jobs), "duplicates": len(seed_jobs) - len(seed_kept),
-            "saved": len(seed_kept), "rejected": 0, "excluded": 0, "error": None,
-        }
-        logger.info("Seed/Demo: topped up with %d demo postings", len(seed_kept))
 
     run_log["finished_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
     run_log["total_found"] = sum(s["found"] for s in run_log["sources"].values())

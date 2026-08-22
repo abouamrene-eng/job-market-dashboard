@@ -14,13 +14,12 @@ from flask import Flask, Response, jsonify, request, send_file, render_template
 
 import analysis_generator
 import database as db
-import scorer_paths
 import scraper
 import tracking_store
 from cv_generator import generate_cv
 from letter_generator import generate_letter
-from scorer import score_job
-from config import DATA_DIR, EXPORT_DIR
+from scorer import estimate_salary, score_job
+from config import CANDIDATE, DATA_DIR, EXPORT_DIR, SEARCH_CRITERIA
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,6 +65,7 @@ def require_auth():
 # deployment (this app's Procfile pins --workers 1); status is lost on
 # restart, which is an acceptable trade-off for a personal tool.
 SCRAPE_TASKS = {}
+LAST_SCRAPE_AT = {}  # source name -> ISO timestamp of its last completed run, see /api/data-sources
 MAX_DAILY_RETRIES = 2  # 7h -> 8h -> 9h
 
 
@@ -74,47 +74,30 @@ def ensure_dirs():
     os.makedirs(EXPORT_DIR, exist_ok=True)
 
 
-def seed_if_empty():
-    """Fast, network-free seed so the dashboard has content immediately at
-    boot. The real multi-source scrape only ever runs via an explicit
-    refresh or the daily cron - never blocking app startup."""
-    if db.count_jobs() == 0:
-        for job in scraper.generate_seed_jobs(8):
-            job.update(score_job(job))
-            job_id = db.upsert_job(job)
-            _score_paths_for_job(job_id, job)
-        logger.info("Seeded empty database with demo postings")
-
-
-def _score_paths_for_job(job_id, job):
-    """Computes and persists the V3 dual career-path scores (Path A =
-    Product/AMOA, Path B = Sales Engineer/Solutions Architect) plus their
-    honest advantages/disadvantages/advice - see scorer_paths.py and
-    analysis_generator.py. Stored once at scrape time rather than
+def _score_job_extras(job_id, job, score_result):
+    """Computes and persists the advantages/disadvantages/advice and the
+    personalized salary estimate for a job - see analysis_generator.py and
+    scorer.estimate_salary(). Stored once at scrape time rather than
     recomputed per-request."""
-    path_a = scorer_paths.score_path_a(job)
-    path_b = scorer_paths.score_path_b(job)
-    primary_path = scorer_paths.determine_primary_path(path_a["score"], path_b["score"])
-    analysis_a = analysis_generator.generate_path_a_analysis(job, path_a, path_b)
-    analysis_b = analysis_generator.generate_path_b_analysis(job, path_a, path_b)
+    analysis = analysis_generator.generate_analysis(job, score_result)
+    salary = estimate_salary(job)
     db.update_job(
         job_id,
-        path_a_score=path_a["score"],
-        path_b_score=path_b["score"],
-        path_a_analysis=json.dumps({"breakdown": path_a["breakdown"], **analysis_a}),
-        path_b_analysis=json.dumps({"breakdown": path_b["breakdown"], **analysis_b}),
-        primary_path=primary_path,
+        analysis=json.dumps(analysis),
+        salary_estimate_min=salary["min"],
+        salary_estimate_max=salary["max"],
     )
 
 
 def _store_jobs(jobs):
     inserted = 0
     for job in jobs:
-        job.update(score_job(job))
+        result = score_job(job)
+        job.update(result)
         job_id = db.upsert_job(job)
         if job_id:
             inserted += 1
-            _score_paths_for_job(job_id, job)
+            _score_job_extras(job_id, job, result)
     return inserted
 
 
@@ -145,17 +128,16 @@ def reconcile_tracking():
         logger.info("Reconciled tracking state for %d job(s) from Supabase", applied)
 
 
-def scrape_and_score(min_results=6, progress_cb=None):
+def scrape_and_score(progress_cb=None):
     """Runs every scraper, scores and stores the results. Returns
     (inserted_count, run_log)."""
-    jobs, run_log = scraper.run_daily_scrape(min_results=min_results, progress_cb=progress_cb)
+    jobs, run_log = scraper.run_daily_scrape(progress_cb=progress_cb)
     inserted = _store_jobs(jobs)
-    if "Seed/Demo" not in run_log["sources"]:
-        # Real sources delivered enough on their own this run - clear out
-        # any leftover demo postings from earlier (e.g. the initial boot
-        # seed) so they stop outranking real offers.
-        db.delete_jobs_by_source("Seed/Demo")
     reconcile_tracking()
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    for source_name, source_result in run_log.get("sources", {}).items():
+        if not source_result.get("error"):
+            LAST_SCRAPE_AT[source_name] = now
     return inserted, run_log
 
 
@@ -248,28 +230,42 @@ def index():
 @app.route("/api/jobs/today")
 def api_jobs_today():
     sector = request.args.getlist("sector") or None
+    role = request.args.getlist("role") or None
     min_salary = request.args.get("min_salary", type=int)
     max_salary = request.args.get("max_salary", type=int)
     score_tier = request.args.get("score")  # top | good | all
     locations = request.args.getlist("location") or None
     status = request.args.get("status")
+    company_type = request.args.getlist("company_type") or None
+    only_aeronautique = request.args.get("aeronautique", default="false") == "true"
+    only_enac = request.args.get("enac", default="false") == "true"
     limit = request.args.get("limit", default=50, type=int)
     offset = request.args.get("offset", default=0, type=int)
     only_today = request.args.get("today_only", default="false") == "true"
-    path = request.args.get("path")  # 'a' | 'b' | None - changes sort order (see database.get_jobs)
-    path = path.lower() if path in ("a", "b", "A", "B") else None
+    tab = request.args.get("tab")  # flux | saved | applied | rejected | None (all)
 
     filters = dict(
         sector=sector,
+        role=role,
         min_salary=min_salary,
         max_salary=max_salary,
         score_tier=None if score_tier in (None, "all") else score_tier,
         locations=locations,
         status=None if status in (None, "all") else status,
-        path=path,
+        company_type=company_type,
+        only_aeronautique=only_aeronautique,
+        only_enac=only_enac,
         limit=limit,
         offset=offset,
     )
+    if tab == "flux":
+        filters["status"] = "new"
+    elif tab == "saved":
+        filters["status"] = "saved"
+    elif tab == "applied":
+        filters["status_in"] = ["applied", "interview", "offer"]
+    elif tab == "rejected":
+        filters["status"] = "rejected"
     if only_today:
         filters["date_found"] = date.today().isoformat()
 
@@ -286,28 +282,34 @@ def api_job_detail(job_id):
     return jsonify(job)
 
 
-@app.route("/api/jobs/<job_id>/scores")
-def api_job_scores(job_id):
-    """Path A / Path B scores + honest analysis for a single job - the
-    dual-path decision widget on the frontend is built entirely from this."""
+@app.route("/api/jobs/<job_id>/analysis")
+def api_job_analysis(job_id):
+    """Score breakdown + advantages/disadvantages/advice + personalized
+    salary estimate for a single job - the decision helper on the frontend
+    is built entirely from this."""
     job = db.get_job(job_id)
     if not job:
         return jsonify({"error": "not_found"}), 404
 
-    path_a_extra = json.loads(job["path_a_analysis"]) if job.get("path_a_analysis") else {}
-    path_b_extra = json.loads(job["path_b_analysis"]) if job.get("path_b_analysis") else {}
-    path_a = {"score": job.get("path_a_score", 0), **path_a_extra}
-    path_b = {"score": job.get("path_b_score", 0), **path_b_extra}
-
-    recommendation = analysis_generator.generate_recommendation(
-        {"score": path_a["score"], "breakdown": path_a.get("breakdown", {})},
-        {"score": path_b["score"], "breakdown": path_b.get("breakdown", {})},
-    )
+    extra = json.loads(job["analysis"]) if job.get("analysis") else {}
     return jsonify({
-        "path_a": path_a,
-        "path_b": path_b,
-        "primary_path": job.get("primary_path"),
-        "recommendation": recommendation,
+        "score": job.get("score", 0),
+        "breakdown": {
+            "role": job.get("score_job_match", 0),
+            "sector": job.get("score_sector", 0),
+            "company": job.get("score_notoriety", 0),
+            "salary": job.get("score_salary", 0),
+            "location": job.get("score_location", 0),
+            "bonus": job.get("score_bonus", 0),
+        },
+        "is_aeronautique": bool(job.get("is_aeronautique")),
+        "enac_mentioned": bool(job.get("enac_mentioned")),
+        "company_type": job.get("company_type"),
+        "salary_estimate": {
+            "min": job.get("salary_estimate_min"),
+            "max": job.get("salary_estimate_max"),
+        },
+        **extra,
     })
 
 
@@ -358,12 +360,13 @@ def api_apply(job_id):
     return jsonify({"success": True})
 
 
-VALID_STATUSES = {"new", "applied", "interview", "offer", "rejected"}
+VALID_STATUSES = {"new", "saved", "applied", "interview", "offer", "rejected"}
+REJECT_REASONS = {"pas_interesse", "salaire_trop_bas", "trop_loin", "pas_aeronautique", "autre"}
 
 
 @app.route("/api/jobs/<job_id>/status", methods=["POST"])
 def api_update_status(job_id):
-    """Generic status update - the full candidacy lifecycle (new -> applied
+    """Generic status update - the full lifecycle (new -> saved -> applied
     -> interview -> offer/rejected), plus free-text notes."""
     job = db.get_job(job_id)
     if not job:
@@ -393,6 +396,33 @@ def api_update_status(job_id):
     return jsonify({"success": True})
 
 
+@app.route("/api/jobs/<job_id>/save", methods=["POST"])
+def api_save_job(job_id):
+    """Quick 'Sauvegarder' action - moves the job from Flux to Mes Offres."""
+    job = db.get_job(job_id)
+    if not job:
+        return jsonify({"error": "not_found"}), 404
+    db.update_job(job_id, status="saved")
+    tracking_store.upsert_tracking(job["job_url"], status="saved")
+    return jsonify({"success": True})
+
+
+@app.route("/api/jobs/<job_id>/reject", methods=["POST"])
+def api_reject_job(job_id):
+    """Quick 'Rejeter' action with a reason - moves the job to Refusées,
+    hidden from the Flux for good."""
+    job = db.get_job(job_id)
+    if not job:
+        return jsonify({"error": "not_found"}), 404
+    body = request.get_json(silent=True) or {}
+    reason = body.get("reason", "autre")
+    if reason not in REJECT_REASONS:
+        return jsonify({"error": "invalid_reason", "allowed": sorted(REJECT_REASONS)}), 400
+    db.update_job(job_id, status="rejected", reject_reason=reason)
+    tracking_store.upsert_tracking(job["job_url"], status="rejected")
+    return jsonify({"success": True})
+
+
 # ---------------------------------------------------------------------------
 # API - stats & insights
 # ---------------------------------------------------------------------------
@@ -407,75 +437,36 @@ def api_insights():
 
 
 # ---------------------------------------------------------------------------
-# API - dual career path (V3)
+# API - profile & data sources (V5)
 # ---------------------------------------------------------------------------
-# Candidate-context numbers from the brief, not derived from scraped data -
-# these are Amine's own financial projections for each path, shown as-is in
-# the Path Comparison view.
-PATH_FINANCIAL_PROJECTION = {
-    "path_a": {"year_1": "90-100k€", "year_3": "100-120k€", "profile": "stable, pas de plafond variable"},
-    "path_b": {"year_1": "85-105k€ (+variable)", "year_3": "110-145k€ (+30-50k variable)",
-               "profile": "variable, plafond potentiel 140-230k€ si top performer"},
-}
-
-
-@app.route("/api/path-stats")
-def api_path_stats():
-    stats = db.get_path_stats()
-    stats["financial_projection"] = PATH_FINANCIAL_PROJECTION
-    return jsonify(stats)
-
-
-@app.route("/api/career-advice")
-def api_career_advice():
-    """Rule-based career advisor content (no external LLM call) - built
-    from live path-stats so the counts/scores reflect the current feed
-    rather than being hardcoded, following the structure of the V3 brief's
-    'Career Advisor' section."""
-    stats = db.get_path_stats()
-    path_a, path_b = stats["path_a"], stats["path_b"]
-
+@app.route("/api/profile")
+def api_profile():
+    """Header context: who's searching, current vs. target compensation."""
     return jsonify({
-        "current_thinking": (
-            "Tu explores deux paths parce que tu veux a la fois de la securite et un "
-            "plafond financier plus haut. C'est une tension legitime - voici l'analyse honnete."
-        ),
-        "path_a": {
-            "label": "Product / AMOA",
-            "pros": ["90-100k€ garanti des l'annee 1", "Risque faible", "Potentiel founder excellent (2-3 ans)"],
-            "cons": ["Plafond salarial fixe (pas de variable)", "Progression plus lente si tu restes en BigCo"],
-            "timeline": "3 ans jusqu'a etre pret a lancer un projet",
-            "risk": "Faible",
-            "recommendation_pct": 70,
-            "current_opportunities": path_a["count"],
-            "avg_score": path_a["avg_score"],
-        },
-        "path_b": {
-            "label": "Sales Engineer / Solutions Architect",
-            "pros": ["Plafond potentiel 140-230k€ si top performer", "Apprentissage du revenue side, precieux pour un founder"],
-            "cons": ["Annee 1 souvent plus bas qu'en product (60-80k selon l'offre)", "Necessite de developper des competences sales", "Stress lie au quota"],
-            "timeline": "2-3 ans pour monter en puissance, puis potentiel 140k+",
-            "risk": "Moyen a eleve",
-            "recommendation_pct": 25,
-            "current_opportunities": path_b["count"],
-            "avg_score": path_b["avg_score"],
-        },
-        "hybrid_strategy": {
-            "recommended": True,
-            "steps": [
-                "Tester le Path B pendant 1 an (Sales Engineer chez une scale-up)",
-                "Annee 1 : 85-105k€, apprentissage du sales, reseau revenue",
-                "Apres 1 an : si tu aimes le sales, continuer (potentiel 140k+) ; sinon, pivoter vers le Path A (90k+)",
-            ],
-            "why_safe": [
-                "Tu ne perds pas tes competences produit (profil rare)",
-                "Tu apprends un nouveau domaine (utile pour un founder)",
-                "Revenu correct des l'annee 1 dans les deux cas",
-                "Le potentiel founder reste ouvert, quel que soit le path",
-            ],
-        },
-        "decision_prompt": "Securite + trajectoire claire -> Path A. Envie d'explorer + tester le sales -> "
-                            "Path B pendant 1 an, puis decider. Maximiser le gain (risque) -> Path B a fond.",
+        "name": CANDIDATE["name"],
+        "current_salary": CANDIDATE["current_salary"],
+        "current_company": CANDIDATE["current_company"],
+        "target_salary_min": SEARCH_CRITERIA["salary_target_min"],
+        "target_salary_max": SEARCH_CRITERIA["salary_target_max"],
+    })
+
+
+@app.route("/api/data-sources")
+def api_data_sources():
+    france_travail_configured = bool(
+        os.environ.get("FRANCE_TRAVAIL_CLIENT_ID") and os.environ.get("FRANCE_TRAVAIL_CLIENT_SECRET")
+    )
+    return jsonify({
+        "sources": [
+            {
+                "name": "France Travail",
+                "connected": france_travail_configured,
+                "last_updated": LAST_SCRAPE_AT.get("france_travail"),
+                "jobs_found": db.count_jobs(),
+            },
+            {"name": "LinkedIn", "connected": False, "note": "Non connecte - c'est la que sont beaucoup d'offres reelles."},
+            {"name": "Google Jobs", "connected": False, "note": "Bientot disponible."},
+        ],
     })
 
 
@@ -541,7 +532,6 @@ def start_scheduler():
 def create_app():
     ensure_dirs()
     db.init_db()
-    seed_if_empty()
     return app
 
 
@@ -554,12 +544,13 @@ create_app()
 # background scheduler / boot-time refresh.
 if not DEBUG or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     start_scheduler()
-    if db.has_only_demo_jobs():
+    if db.count_jobs() == 0:
         # Storage is ephemeral on hosts like Render's free tier: every
-        # redeploy/restart wipes real data back down to the demo seed.
-        # Kick off a real scrape in the background right away instead of
-        # waiting for a manual refresh or the 7h cron.
-        logger.info("Only demo postings on hand at boot - starting a background refresh")
+        # redeploy/restart wipes the local cache. Kick off a real scrape in
+        # the background right away instead of waiting for a manual refresh
+        # or the 7h cron - no demo fallback anymore, so an empty database
+        # means an empty (honest) feed until this completes.
+        logger.info("Empty database at boot - starting a background refresh")
         _start_scrape_task()
 
 

@@ -1,10 +1,12 @@
 services:
   - type: web
-    name: job-market-dashboard
-    runtime: python
+    # Deliberately a different name from the existing "job-market-dashboard"
+    # native-Python service: Render's Blueprint sync links to an existing
+    # service by name and won't switch its runtime (see the "Reverte
+    # render.yaml" commit) - a distinct name forces a genuinely new Docker
+    # service to be created instead. Once verified, rename it (Settings ->
+    # Name) to reclaim a cleaner URL and delete the old service.
+    name: job-market-dashboard-docker
+    runtime: docker
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 1 --timeout 120
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
+    dockerfilePath: ./Dockerfile

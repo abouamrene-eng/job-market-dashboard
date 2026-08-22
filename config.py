@@ -133,15 +133,13 @@ CANDIDATE = {
 }
 
 SEARCH_CRITERIA = {
-    "salary_min": 65000,
-    "salary_target_low": 68000,
-    "salary_target_high": 75000,
-    "salary_acceptable_min": 60000,
     # What Amine can realistically ask for given his real profile (ENAC +
-    # 3 years Product/AMOA + aeronautique specialism), not the generic
-    # market average of scraped postings - see scorer.estimate_salary().
-    "salary_target_min": 95000,
-    "salary_target_max": 110000,
+    # 3 years Product/AMOA + large-scale GMAO delivery) - grounded in the
+    # August 2026 market veille (Externatic grille "confirme" 3-6 ans IDF:
+    # 53-63k EUR, cross-referenced against 16 real postings), not a generic
+    # algorithmic guess. See scorer.estimate_salary().
+    "salary_target_min": 58000,
+    "salary_target_max": 65000,
     "locations_preferred": ["mixte", "remote", "ile-de-france", "idf", "paris",
                               "toulouse", "france"],
     "sectors_priority": [
@@ -153,7 +151,11 @@ SEARCH_CRITERIA = {
         "agile coach", "scrum master", "business analyst",
         "transformation digitale",
     ],
-    "exclude_below_salary": 60000,
+    # Floor beneath which a posting isn't worth surfacing at all - below the
+    # grille's "jeune diplome" tier (38-43k), not the old, unrealistically
+    # high 60k cut that would have silently rejected genuinely good
+    # "confirme" offers found in the veille (e.g. Storm Group 45-55k).
+    "exclude_below_salary": 45000,
 }
 
 SEARCH_KEYWORDS = [

@@ -98,16 +98,21 @@ def score_company(job: dict) -> float:
 
 
 def score_salary(job: dict) -> float:
+    # Tiers grounded in the August 2026 market veille (Externatic grille +
+    # 16 real postings cross-referenced), not a generic guess: "confirme"
+    # (3-6 ans) IDF sits at 53-63k, "senior" at 62-70k. A realistic 58-65k
+    # offer scores well here - it used to score 0, which made honestly
+    # priced real postings look artificially weak next to rare 110k+ ones.
     reference = job.get("salary_max") or job.get("salary_min") or 0
-    if reference >= 110000:
-        return 20
-    if reference >= 100000:
-        return 18
-    if reference >= 90000:
-        return 15
     if reference >= 85000:
+        return 20
+    if reference >= 70000:
+        return 17
+    if reference >= 63000:
+        return 14
+    if reference >= 58000:
         return 10
-    if reference >= 75000:
+    if reference >= 50000:
         return 5
     return 0
 
@@ -164,27 +169,31 @@ def score_job(job: dict) -> dict:
 
 
 def estimate_salary(job: dict = None) -> dict:
-    """Amine's personalized 'what you can actually ask for' range - based on
-    HIS profile (ENAC, 3 years Product/AMOA @ SNCF, aero specialism), not a
-    generic average of scraped postings. Nudged up for aeronautique-fit and
-    BigCo postings, which pay better on his specific background."""
-    base = 60000
-    reasons = ["Diplôme ENAC (+5 000 €)", "3 ans d'expérience Product/AMOA (+15 000 €)",
-               "Expérience GMAO à grande échelle (+10 000 €)"]
-    base += 5000 + 15000 + 10000
+    """Amine's personalized 'what you can actually ask for' range - grounded
+    in the August 2026 market veille (Externatic grille "confirme" 3-6 ans
+    IDF: 53-63k EUR, cross-referenced against 16 real postings via
+    Glassdoor/Indeed/Hellowork), not an unmoored stack of made-up bonuses.
+    Base sits at the top of the "confirme" band, reflecting Amine's
+    differentiators (ENAC, SAFe/PSPO I, large-scale GMAO delivery); modest
+    nudges for aeronautique-fit and BigCo postings, capped near where the
+    "senior" grille tier begins (62-70k) rather than inflating into the
+    90k+ territory that turned out not to be real."""
+    base_min, base_max = 58000, 65000
+    reasons = [
+        "Grille marché « confirmé » (3-6 ans) IDF : 53-63k€ (Externatic)",
+        "Profil en haut de fourchette : ENAC + SAFe/PSPO I + GMAO à grande échelle",
+    ]
 
-    is_aero = bool(job) and detect_is_aeronautique(job)
-    if is_aero:
-        base += 10000
-        reasons.append("Spécialiste aéronautique (+10 000 €)")
-
-    is_bigco = bool(job) and detect_company_type(job) == "BigCo"
-    if is_bigco:
-        base += 15000
-        reasons.append("Grille grand groupe (+15 000 €)")
+    bump = 0
+    if bool(job) and detect_is_aeronautique(job):
+        bump += 3000
+        reasons.append("Spécialiste aéronautique/ENAC (+3 000 €)")
+    if bool(job) and detect_company_type(job) == "BigCo":
+        bump += 2000
+        reasons.append("Grille grand groupe (+2 000 €)")
 
     return {
-        "min": base - 5000,
-        "max": base + 5000,
+        "min": base_min + bump,
+        "max": base_max + bump,
         "reasons": reasons,
     }

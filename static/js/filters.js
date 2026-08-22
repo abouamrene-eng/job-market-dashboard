@@ -27,8 +27,8 @@ const Filters = (() => {
     document.querySelectorAll("#filter-role input, #filter-company input, #filter-location input").forEach((el) => {
       el.checked = true;
     });
-    document.getElementById("filter-salary").value = 85000;
-    document.getElementById("filter-salary-value").textContent = "85 000 €";
+    document.getElementById("filter-salary").value = 40000;
+    document.getElementById("filter-salary-value").textContent = "40 000 €";
     document.getElementById("filter-aero").checked = true;
     document.getElementById("filter-enac").checked = false;
   }
@@ -46,7 +46,7 @@ const Filters = (() => {
     if (!allChecked("filter-role")) n += 1;
     if (!allChecked("filter-company")) n += 1;
     if (!allChecked("filter-location")) n += 1;
-    if (Number(document.getElementById("filter-salary").value) > 85000) n += 1;
+    if (Number(document.getElementById("filter-salary").value) > 40000) n += 1;
     if (!document.getElementById("filter-aero").checked) n += 1;
     if (document.getElementById("filter-enac").checked) n += 1;
     return n;

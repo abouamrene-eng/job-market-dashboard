@@ -3,7 +3,9 @@ Amine's single aeronautique + Product/AMOA search (V5 - replaces the
 earlier dual Path A/B analysis, which is gone along with the comparison
 and career-advisor views).
 """
-from config import NOTABLE_COMPANIES
+from config import NOTABLE_COMPANIES, SEARCH_CRITERIA
+
+_TARGET = f"{round(SEARCH_CRITERIA['salary_target_min'] / 1000)}-{round(SEARCH_CRITERIA['salary_target_max'] / 1000)}k€"
 
 
 def _is_bigco(company: str) -> bool:
@@ -26,8 +28,8 @@ def generate_analysis(job: dict, score_result: dict) -> dict:
         advantages.append(f"{company} = secteur aéronautique, ta cible prioritaire et ton domaine d'expertise (ENAC).")
     if score_result["enac_mentioned"]:
         advantages.append("L'annonce mentionne l'ENAC ou une formation équivalente - signal fort que ton profil est recherché.")
-    if score_result["score_salary"] >= 15:
-        advantages.append(f"Salaire affiché ({_fmt_k(salary_ref)}) proche de ta cible réelle (95-110k€).")
+    if score_result["score_salary"] >= 14:
+        advantages.append(f"Salaire affiché ({_fmt_k(salary_ref)}) aligné avec ta cible réaliste ({_TARGET}).")
     if score_result["company_type"] == "BigCo":
         advantages.append(f"{company} = grand groupe, réseau et référence solides pour la suite de ton parcours.")
     elif score_result["company_type"] == "Scale-up":
@@ -37,8 +39,10 @@ def generate_analysis(job: dict, score_result: dict) -> dict:
     if not advantages:
         advantages.append("Aucun signal fort particulier au-delà du fit de rôle de base.")
 
-    if salary_ref and score_result["score_salary"] <= 5:
-        disadvantages.append(f"Salaire affiché ({_fmt_k(salary_ref)}) nettement en dessous de ta cible (95-110k€).")
+    if salary_ref and score_result["score_salary"] == 0:
+        disadvantages.append(f"Salaire affiché ({_fmt_k(salary_ref)}) nettement en dessous de ta cible ({_TARGET}).")
+    elif salary_ref and score_result["score_salary"] == 5:
+        disadvantages.append(f"Salaire affiché ({_fmt_k(salary_ref)}) légèrement en dessous de ta cible ({_TARGET}), mais pas rédhibitoire.")
     if not score_result["is_aeronautique"]:
         disadvantages.append("Hors secteur aéronautique - moins directement utile pour ton positionnement de spécialiste.")
     if score_result["company_type"] == "BigCo":

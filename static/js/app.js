@@ -545,6 +545,74 @@
     `;
   }
 
+  function veilleGrilleRow(level) {
+    return `
+      <div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--color-border); font-size:13px; ${level.you ? "color:var(--color-primary); font-weight:700;" : "color:var(--color-text-secondary);"}">
+        <span>${level.level}${level.sub ? ` <span style="font-size:11px; opacity:.75;">(${level.sub})</span>` : ""}</span>
+        <span class="tnum">${Math.round(level.min / 1000)}k–${Math.round(level.max / 1000)}k€</span>
+      </div>
+    `;
+  }
+
+  function veilleTargetCard(t) {
+    return `
+      <div class="link-box" style="margin-top:8px;">
+        <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+          <div class="link-box-title" style="margin-bottom:0;">${t.name}${t.sector ? ` · ${t.sector}` : ""}</div>
+          <div class="tnum" style="font-weight:700; color:var(--color-text-primary);">${t.range_min ? Math.round(t.range_min / 1000) + "k–" + Math.round(t.range_max / 1000) + "k€" : "-"}</div>
+        </div>
+        ${t.note ? `<p style="font-size:13px; color:var(--color-text-secondary); margin:8px 0 0;">${t.note}</p>` : ""}
+        ${t.caution ? `<div style="margin-top:8px; padding:6px 10px; border-radius:var(--radius-md); background:var(--color-warning-subtle); color:var(--color-warning); font-size:12px; font-weight:600;">${t.caution}</div>` : ""}
+        ${t.found ? `<div style="margin-top:8px; font-size:11.5px; color:var(--color-text-tertiary);"><b>Trouvé :</b> ${t.found}</div>` : ""}
+      </div>
+    `;
+  }
+
+  async function openVeille() {
+    const modal = document.getElementById("job-modal");
+    document.getElementById("modal-content").innerHTML = `<p>Chargement de la veille…</p>`;
+    modal.classList.add("is-open");
+    try {
+      const v = await Api.getVeille();
+      if (!v.exists) {
+        document.getElementById("modal-content").innerHTML = `
+          <h2 style="font-size:20px; font-weight:700; margin:0 0 8px; color:var(--color-text-primary);">Veille marché</h2>
+          <p style="font-size:13px; color:var(--color-text-tertiary);">Aucune veille enregistrée pour l'instant. Elle se met à jour automatiquement via la routine de veille périodique, ou peut être ajoutée manuellement via l'API.</p>
+        `;
+        return;
+      }
+      const updated = v.updated_at ? new Date(v.updated_at.replace(" ", "T")).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }) : "-";
+      document.getElementById("modal-content").innerHTML = `
+        <h2 style="font-size:20px; font-weight:700; margin:0 0 4px; color:var(--color-text-primary);">Veille marché</h2>
+        <p style="font-size:12px; color:var(--color-text-tertiary); margin:0 0 16px;">Mise à jour le ${updated}</p>
+
+        <div class="decision-widget" style="margin-top:0;">
+          <div class="decision-widget-row"><span>Cible réaliste (entrée CDI)</span><strong class="tnum">${Math.round(v.target_min / 1000)}k–${Math.round(v.target_max / 1000)}k€</strong></div>
+        </div>
+        ${v.summary ? `<p style="font-size:13.5px; line-height:1.6; color:var(--color-text-secondary); margin-top:12px;">${v.summary}</p>` : ""}
+
+        ${v.grille.length ? `
+          <div class="section-label" style="margin-top:20px;">Grille de marché par niveau</div>
+          ${v.grille.map(veilleGrilleRow).join("")}
+        ` : ""}
+
+        ${v.targets.length ? `
+          <div class="section-label" style="margin-top:20px;">Entreprises cibles</div>
+          ${v.targets.map(veilleTargetCard).join("")}
+        ` : ""}
+
+        ${v.sources.length ? `
+          <div class="section-label" style="margin-top:20px;">Sources</div>
+          <div style="font-size:12px; color:var(--color-text-tertiary); display:flex; flex-direction:column; gap:4px;">
+            ${v.sources.map((s) => `<a href="${s.url}" target="_blank" rel="noopener" style="color:var(--color-text-tertiary);">${s.label}</a>`).join("")}
+          </div>
+        ` : ""}
+      `;
+    } catch (e) {
+      document.getElementById("modal-content").innerHTML = `<p>Erreur de chargement de la veille : ${e.message}</p>`;
+    }
+  }
+
   async function openInsights() {
     const modal = document.getElementById("job-modal");
     document.getElementById("modal-content").innerHTML = `<p>Chargement des tendances…</p>`;
@@ -705,6 +773,7 @@
   function bindEvents() {
     document.getElementById("btn-refresh").addEventListener("click", handleRefresh);
     document.getElementById("btn-insights").addEventListener("click", openInsights);
+    document.getElementById("btn-veille").addEventListener("click", openVeille);
     document.getElementById("btn-add-job").addEventListener("click", openAddJobModal);
     document.querySelectorAll(".nav-tab").forEach((tab) => {
       tab.addEventListener("click", () => {

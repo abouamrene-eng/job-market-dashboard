@@ -40,6 +40,22 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_score ON jobs(score DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_date_found ON jobs(date_found);
+
+-- Single-row store for the market veille (salary grille, target-company
+-- negotiation notes, sources) - the synthesis behind the numbers, not the
+-- individual job postings it finds (those go through upsert_job as usual).
+-- Refreshed periodically by the "Veille marché AMOA/Product IDF" routine
+-- via POST /api/veille, so it lives in the app instead of a one-off report.
+CREATE TABLE IF NOT EXISTS market_veille (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    updated_at TIMESTAMP,
+    target_min INTEGER,
+    target_max INTEGER,
+    summary TEXT,
+    grille_json TEXT,
+    targets_json TEXT,
+    sources_json TEXT
+);
 """
 
 # V5 columns (aeronautique focus - replaces V3's dual Path A/B columns,
@@ -336,5 +352,30 @@ def get_insights():
             "trend": [dict(r) for r in trend],
             "total_applied": total_applied,
         }
+
+
+def get_veille():
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM market_veille WHERE id = 1").fetchone()
+        return dict(row) if row else None
+
+
+def save_veille(**fields):
+    """Upserts the single-row market veille record. Pass any subset of
+    target_min/target_max/summary/grille_json/targets_json/sources_json -
+    only provided fields are touched."""
+    if not fields:
+        return
+    fields["updated_at"] = datetime.utcnow().isoformat()
+    fields["id"] = 1
+    columns = ", ".join(fields)
+    placeholders = ", ".join("?" for _ in fields)
+    updates = ", ".join(f"{k} = excluded.{k}" for k in fields if k != "id")
+    with get_conn() as conn:
+        conn.execute(
+            f"INSERT INTO market_veille ({columns}) VALUES ({placeholders}) "
+            f"ON CONFLICT(id) DO UPDATE SET {updates}",
+            list(fields.values()),
+        )
 
 

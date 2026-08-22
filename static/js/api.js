@@ -51,6 +51,9 @@ const Api = (() => {
     getInsights() {
       return request("/api/insights");
     },
+    getVeille() {
+      return request("/api/veille");
+    },
     getAnalysis(id) {
       return request(`/api/jobs/${id}/analysis`);
     },

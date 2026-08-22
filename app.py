@@ -475,6 +475,49 @@ def api_insights():
     return jsonify(db.get_insights())
 
 
+@app.route("/api/veille")
+def api_get_veille():
+    """The market veille synthesis (salary grille, target-company negotiation
+    notes, sources) - not the individual postings it finds, which live in
+    the jobs table as usual. Refreshed periodically by the veille routine
+    via POST below, or manually."""
+    v = db.get_veille()
+    if not v:
+        return jsonify({"exists": False})
+    return jsonify({
+        "exists": True,
+        "updated_at": v["updated_at"],
+        "target_min": v["target_min"],
+        "target_max": v["target_max"],
+        "summary": v["summary"],
+        "grille": json.loads(v["grille_json"]) if v["grille_json"] else [],
+        "targets": json.loads(v["targets_json"]) if v["targets_json"] else [],
+        "sources": json.loads(v["sources_json"]) if v["sources_json"] else [],
+    })
+
+
+@app.route("/api/veille", methods=["POST"])
+def api_save_veille():
+    body = request.get_json(silent=True) or {}
+    fields = {}
+    if "target_min" in body:
+        fields["target_min"] = body["target_min"]
+    if "target_max" in body:
+        fields["target_max"] = body["target_max"]
+    if "summary" in body:
+        fields["summary"] = body["summary"]
+    if "grille" in body:
+        fields["grille_json"] = json.dumps(body["grille"])
+    if "targets" in body:
+        fields["targets_json"] = json.dumps(body["targets"])
+    if "sources" in body:
+        fields["sources_json"] = json.dumps(body["sources"])
+    if not fields:
+        return jsonify({"error": "empty_payload"}), 400
+    db.save_veille(**fields)
+    return jsonify({"success": True})
+
+
 # ---------------------------------------------------------------------------
 # API - profile & data sources (V5)
 # ---------------------------------------------------------------------------

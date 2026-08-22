@@ -51,6 +51,15 @@ const Api = (() => {
     getInsights() {
       return request("/api/insights");
     },
+    getJobScores(id) {
+      return request(`/api/jobs/${id}/scores`);
+    },
+    getPathStats() {
+      return request("/api/path-stats");
+    },
+    getCareerAdvice() {
+      return request("/api/career-advice");
+    },
     runScrape() {
       return request("/api/scrape/run", { method: "POST" });
     },

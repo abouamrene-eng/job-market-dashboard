@@ -42,6 +42,26 @@ CREATE INDEX IF NOT EXISTS idx_jobs_score ON jobs(score DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_date_found ON jobs(date_found);
 """
 
+# V3 dual-path columns, added via migration rather than the base SCHEMA so
+# a database created by an older deploy gets upgraded in place instead of
+# needing a wipe. ALTER TABLE ADD COLUMN has no "IF NOT EXISTS" in SQLite,
+# hence the try/except-per-column below.
+PATH_COLUMNS = [
+    ("path_a_score", "INTEGER DEFAULT 0"),
+    ("path_b_score", "INTEGER DEFAULT 0"),
+    ("path_a_analysis", "TEXT"),
+    ("path_b_analysis", "TEXT"),
+    ("primary_path", "TEXT DEFAULT 'both'"),
+]
+
+
+def _migrate_path_columns(conn):
+    for name, coltype in PATH_COLUMNS:
+        try:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {name} {coltype}")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
 
 @contextmanager
 def get_conn():
@@ -58,6 +78,7 @@ def get_conn():
 def init_db():
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        _migrate_path_columns(conn)
 
 
 def upsert_job(job: dict) -> str:
@@ -116,6 +137,7 @@ def get_jobs(
     locations=None,
     status=None,
     date_found=None,
+    path=None,
     limit=50,
     offset=0,
 ):
@@ -155,7 +177,8 @@ def get_jobs(
         query += " AND status = ?"
         params.append(status)
 
-    query += " ORDER BY score DESC LIMIT ? OFFSET ?"
+    order_column = {"a": "path_a_score", "b": "path_b_score"}.get(path, "score")
+    query += f" ORDER BY {order_column} DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
     with get_conn() as conn:
@@ -288,4 +311,33 @@ def get_insights():
             "top_companies": [dict(r) for r in top_companies],
             "trend": [dict(r) for r in trend],
             "total_applied": total_applied,
+        }
+
+
+def get_path_stats(threshold: int = 50):
+    """Aggregate counts/avg score/avg salary for jobs that are a reasonable
+    fit (score > threshold) for each career path - powers the V3 Path
+    Comparison view and the 'Path A: X jobs, avg score XX' stat line."""
+    with get_conn() as conn:
+        def _path_row(score_column):
+            row = conn.execute(
+                f"""SELECT COUNT(*) count, AVG({score_column}) avg_score,
+                           AVG(salary_max) avg_salary
+                    FROM jobs WHERE {score_column} > ?""",
+                (threshold,),
+            ).fetchone()
+            return {
+                "count": row["count"] or 0,
+                "avg_score": round(row["avg_score"] or 0),
+                "avg_salary": round(row["avg_salary"] or 0),
+            }
+
+        cross_fit = conn.execute(
+            "SELECT COUNT(*) c FROM jobs WHERE primary_path = 'both'"
+        ).fetchone()["c"]
+
+        return {
+            "path_a": _path_row("path_a_score"),
+            "path_b": _path_row("path_b_score"),
+            "cross_fit_count": cross_fit,
         }

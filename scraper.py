@@ -781,6 +781,72 @@ _SEED_TEMPLATES = [
             "transformation digitale et agile a l'echelle internationale."
         ),
     },
+    # Path B - Sales Engineer / Solutions Architect (exploration path, see
+    # scorer_paths.py). France Travail rarely surfaces these high-growth
+    # SaaS postings, so a few realistic seeds keep the dual-path feature
+    # populated even without live scraping.
+    {
+        "job_title": "Sales Engineer",
+        "company": "Stripe",
+        "location": "Remote",
+        "sector": "Tech",
+        "salary_min": 85000, "salary_max": 85000,
+        "job_description": (
+            "Rejoignez Stripe en tant que Sales Engineer pour accompagner les "
+            "equipes commerciales sur les integrations techniques des plus "
+            "grands comptes. Remote-first, forte croissance, part variable de "
+            "30k a 50k selon performance. Vous travaillerez sur les APIs de "
+            "paiement et l'ecosysteme fintech le plus avance du marche."
+        ),
+    },
+    {
+        "job_title": "Solutions Architect",
+        "company": "Figma",
+        "location": "Remote (Europe)",
+        "sector": "Tech",
+        "salary_min": 90000, "salary_max": 90000,
+        "job_description": (
+            "Solutions Architect pour accompagner les clients enterprise de "
+            "Figma dans leur adoption produit. Culture commerciale forte, "
+            "hypercroissance, variable de 20k a 35k. Anglais courant requis."
+        ),
+    },
+    {
+        "job_title": "Solutions Engineer",
+        "company": "Linear",
+        "location": "Remote",
+        "sector": "Tech",
+        "salary_min": 88000, "salary_max": 88000,
+        "job_description": (
+            "Linear recherche un Solutions Engineer pour le pre-sales "
+            "technique aupres d'equipes produit. Scale-up en forte "
+            "croissance, variable jusqu'a 25k, remote total."
+        ),
+    },
+    {
+        "job_title": "Technical Account Manager",
+        "company": "Salesforce",
+        "location": "Paris / Hybride",
+        "sector": "Tech",
+        "salary_min": 92000, "salary_max": 92000,
+        "job_description": (
+            "Technical Account Manager pour accompagner les plus grands "
+            "comptes Salesforce en France. Vente enterprise structuree, OTE "
+            "avec part variable significative, quota ambitieux."
+        ),
+    },
+    {
+        "job_title": "Sales Engineer",
+        "company": "Qonto",
+        "location": "Paris / Remote",
+        "sector": "Fintech",
+        "salary_min": 78000, "salary_max": 78000,
+        "job_description": (
+            "Qonto recherche un Sales Engineer pour soutenir l'equipe "
+            "commerciale sur les integrations API bancaires. Scale-up "
+            "francaise en forte croissance, variable de 15k a 25k."
+        ),
+    },
 ]
 
 

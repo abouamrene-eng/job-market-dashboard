@@ -479,3 +479,64 @@ textarea.text-input { height: auto; padding: var(--spacing-sm); resize: vertical
   padding: var(--spacing-xs) var(--spacing-2xs) 0; border-bottom: 1px solid var(--color-border);
 }
 .sparkline-bar { flex: 1; background: var(--gradient-score); border-radius: 3px 3px 0 0; min-height: 4px; }
+
+/* ===========================================================================
+   DUAL CAREER PATH (V3) — path tabs, score chips, decision widget, advisor
+   =========================================================================== */
+.path-tabs { display: flex; gap: var(--spacing-xs); margin-bottom: var(--spacing-md); flex-wrap: wrap; }
+.path-tab {
+  height: 32px; padding: 0 var(--spacing-md); border-radius: var(--radius-full);
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  color: var(--color-text-secondary); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold);
+  cursor: pointer; transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+.path-tab:hover { background: var(--color-bg-primary); }
+.path-tab.is-active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+
+.path-score-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.path-score-chip {
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 var(--spacing-xs);
+  border-radius: var(--radius-sm); font-size: 11px; font-weight: var(--font-weight-semibold);
+  background: var(--color-bg-secondary); color: var(--color-text-secondary);
+}
+.path-score-chip .path-score-value { font-variant-numeric: tabular-nums; color: var(--color-text-primary); }
+.path-score-chip.is-lead { background: var(--color-primary-subtle); color: var(--color-primary-active); }
+.path-score-chip.is-lead .path-score-value { color: var(--color-primary-active); }
+.path-badge-cross { background: var(--color-warning-subtle); color: var(--color-warning); }
+
+.decision-widget {
+  background: var(--color-bg-secondary); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: var(--spacing-lg); margin: var(--spacing-md) 0;
+}
+.decision-widget-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; font-size: var(--font-size-sm); }
+.decision-widget-row strong { font-variant-numeric: tabular-nums; }
+.decision-verdict {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm); border-radius: var(--radius-md);
+  background: var(--color-primary-subtle); color: var(--color-primary-active);
+  font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold);
+}
+
+.path-analysis-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md); margin-top: var(--spacing-md); }
+@media (max-width: 768px) { .path-analysis-grid { grid-template-columns: 1fr; } }
+.path-analysis-card { border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--spacing-md); }
+.path-analysis-card h4 { font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); margin: 0 0 var(--spacing-sm); color: var(--color-text-primary); }
+.path-analysis-card ul { margin: 0 0 var(--spacing-sm); padding-left: 18px; font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.path-analysis-card li { margin-bottom: 4px; }
+.path-analysis-card .advantages li::marker { color: var(--color-success); }
+.path-analysis-card .disadvantages li::marker { color: var(--color-warning); }
+.path-analysis-card .advice { font-size: var(--font-size-sm); color: var(--color-text-primary); background: var(--color-bg-secondary); border-radius: var(--radius-md); padding: var(--spacing-sm); }
+
+.advisor-path-card { border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--spacing-lg); margin-bottom: var(--spacing-md); }
+.advisor-path-card h4 { display: flex; align-items: center; justify-content: space-between; font-size: var(--font-size-md); margin: 0 0 var(--spacing-sm); }
+.advisor-stars { color: var(--color-warning); font-size: var(--font-size-sm); }
+.advisor-meta { font-size: var(--font-size-xs); color: var(--color-text-tertiary); margin-top: var(--spacing-sm); }
+
+.comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md); }
+@media (max-width: 640px) { .comparison-grid { grid-template-columns: 1fr; } }
+.comparison-card { border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--spacing-lg); }
+.comparison-card .n { font-family: var(--font-family-secondary); font-size: var(--font-size-3xl); font-weight: var(--font-weight-bold); color: var(--color-text-primary); }
+.comparison-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); margin-top: var(--spacing-sm); }
+.comparison-table td { padding: 6px 4px; border-bottom: 1px solid var(--color-border); }
+.comparison-table td:first-child { color: var(--color-text-tertiary); }
+.comparison-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--font-weight-semibold); }

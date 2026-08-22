@@ -23,6 +23,14 @@
       </span>
     </a>
     <div class="app-header-actions">
+      <button id="btn-advisor" class="btn btn-secondary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="10"/></svg>
+        Conseiller
+      </button>
+      <button id="btn-comparison" class="btn btn-secondary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-6"/><path d="M12 16V6"/><path d="M17 16v-3"/></svg>
+        Path A vs B
+      </button>
       <button id="btn-insights" class="btn btn-secondary">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
         Tendances
@@ -133,6 +141,11 @@
 
     <section aria-labelledby="feed-heading">
       <h2 id="feed-heading" class="visually-hidden">Offres d'emploi</h2>
+      <div class="path-tabs" role="tablist" aria-label="Filtrer par career path">
+        <button class="path-tab is-active" data-path="" role="tab" aria-selected="true">Toutes les offres</button>
+        <button class="path-tab" data-path="a" role="tab" aria-selected="false">Path A · Product/AMOA</button>
+        <button class="path-tab" data-path="b" role="tab" aria-selected="false">Path B · Sales Engineer</button>
+      </div>
       <div class="feed-toolbar">
         <div class="feed-toolbar-left">
           <label for="sort-select">Tri :</label>

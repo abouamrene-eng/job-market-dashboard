@@ -1,4 +1,5 @@
 """Flask backend for Amine's Job Market Dashboard."""
+import json
 import logging
 import os
 import secrets
@@ -11,7 +12,9 @@ from datetime import date
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, Response, jsonify, request, send_file, render_template
 
+import analysis_generator
 import database as db
+import scorer_paths
 import scraper
 import tracking_store
 from cv_generator import generate_cv
@@ -78,8 +81,30 @@ def seed_if_empty():
     if db.count_jobs() == 0:
         for job in scraper.generate_seed_jobs(8):
             job.update(score_job(job))
-            db.upsert_job(job)
+            job_id = db.upsert_job(job)
+            _score_paths_for_job(job_id, job)
         logger.info("Seeded empty database with demo postings")
+
+
+def _score_paths_for_job(job_id, job):
+    """Computes and persists the V3 dual career-path scores (Path A =
+    Product/AMOA, Path B = Sales Engineer/Solutions Architect) plus their
+    honest advantages/disadvantages/advice - see scorer_paths.py and
+    analysis_generator.py. Stored once at scrape time rather than
+    recomputed per-request."""
+    path_a = scorer_paths.score_path_a(job)
+    path_b = scorer_paths.score_path_b(job)
+    primary_path = scorer_paths.determine_primary_path(path_a["score"], path_b["score"])
+    analysis_a = analysis_generator.generate_path_a_analysis(job, path_a, path_b)
+    analysis_b = analysis_generator.generate_path_b_analysis(job, path_a, path_b)
+    db.update_job(
+        job_id,
+        path_a_score=path_a["score"],
+        path_b_score=path_b["score"],
+        path_a_analysis=json.dumps({"breakdown": path_a["breakdown"], **analysis_a}),
+        path_b_analysis=json.dumps({"breakdown": path_b["breakdown"], **analysis_b}),
+        primary_path=primary_path,
+    )
 
 
 def _store_jobs(jobs):
@@ -89,6 +114,7 @@ def _store_jobs(jobs):
         job_id = db.upsert_job(job)
         if job_id:
             inserted += 1
+            _score_paths_for_job(job_id, job)
     return inserted
 
 
@@ -230,6 +256,8 @@ def api_jobs_today():
     limit = request.args.get("limit", default=50, type=int)
     offset = request.args.get("offset", default=0, type=int)
     only_today = request.args.get("today_only", default="false") == "true"
+    path = request.args.get("path")  # 'a' | 'b' | None - changes sort order (see database.get_jobs)
+    path = path.lower() if path in ("a", "b", "A", "B") else None
 
     filters = dict(
         sector=sector,
@@ -238,6 +266,7 @@ def api_jobs_today():
         score_tier=None if score_tier in (None, "all") else score_tier,
         locations=locations,
         status=None if status in (None, "all") else status,
+        path=path,
         limit=limit,
         offset=offset,
     )
@@ -255,6 +284,31 @@ def api_job_detail(job_id):
     if not job:
         return jsonify({"error": "not_found"}), 404
     return jsonify(job)
+
+
+@app.route("/api/jobs/<job_id>/scores")
+def api_job_scores(job_id):
+    """Path A / Path B scores + honest analysis for a single job - the
+    dual-path decision widget on the frontend is built entirely from this."""
+    job = db.get_job(job_id)
+    if not job:
+        return jsonify({"error": "not_found"}), 404
+
+    path_a_extra = json.loads(job["path_a_analysis"]) if job.get("path_a_analysis") else {}
+    path_b_extra = json.loads(job["path_b_analysis"]) if job.get("path_b_analysis") else {}
+    path_a = {"score": job.get("path_a_score", 0), **path_a_extra}
+    path_b = {"score": job.get("path_b_score", 0), **path_b_extra}
+
+    recommendation = analysis_generator.generate_recommendation(
+        {"score": path_a["score"], "breakdown": path_a.get("breakdown", {})},
+        {"score": path_b["score"], "breakdown": path_b.get("breakdown", {})},
+    )
+    return jsonify({
+        "path_a": path_a,
+        "path_b": path_b,
+        "primary_path": job.get("primary_path"),
+        "recommendation": recommendation,
+    })
 
 
 @app.route("/api/jobs/<job_id>/generate-cv-letter", methods=["POST"])
@@ -350,6 +404,79 @@ def api_stats_daily():
 @app.route("/api/insights")
 def api_insights():
     return jsonify(db.get_insights())
+
+
+# ---------------------------------------------------------------------------
+# API - dual career path (V3)
+# ---------------------------------------------------------------------------
+# Candidate-context numbers from the brief, not derived from scraped data -
+# these are Amine's own financial projections for each path, shown as-is in
+# the Path Comparison view.
+PATH_FINANCIAL_PROJECTION = {
+    "path_a": {"year_1": "90-100k€", "year_3": "100-120k€", "profile": "stable, pas de plafond variable"},
+    "path_b": {"year_1": "85-105k€ (+variable)", "year_3": "110-145k€ (+30-50k variable)",
+               "profile": "variable, plafond potentiel 140-230k€ si top performer"},
+}
+
+
+@app.route("/api/path-stats")
+def api_path_stats():
+    stats = db.get_path_stats()
+    stats["financial_projection"] = PATH_FINANCIAL_PROJECTION
+    return jsonify(stats)
+
+
+@app.route("/api/career-advice")
+def api_career_advice():
+    """Rule-based career advisor content (no external LLM call) - built
+    from live path-stats so the counts/scores reflect the current feed
+    rather than being hardcoded, following the structure of the V3 brief's
+    'Career Advisor' section."""
+    stats = db.get_path_stats()
+    path_a, path_b = stats["path_a"], stats["path_b"]
+
+    return jsonify({
+        "current_thinking": (
+            "Tu explores deux paths parce que tu veux a la fois de la securite et un "
+            "plafond financier plus haut. C'est une tension legitime - voici l'analyse honnete."
+        ),
+        "path_a": {
+            "label": "Product / AMOA",
+            "pros": ["90-100k€ garanti des l'annee 1", "Risque faible", "Potentiel founder excellent (2-3 ans)"],
+            "cons": ["Plafond salarial fixe (pas de variable)", "Progression plus lente si tu restes en BigCo"],
+            "timeline": "3 ans jusqu'a etre pret a lancer un projet",
+            "risk": "Faible",
+            "recommendation_pct": 70,
+            "current_opportunities": path_a["count"],
+            "avg_score": path_a["avg_score"],
+        },
+        "path_b": {
+            "label": "Sales Engineer / Solutions Architect",
+            "pros": ["Plafond potentiel 140-230k€ si top performer", "Apprentissage du revenue side, precieux pour un founder"],
+            "cons": ["Annee 1 souvent plus bas qu'en product (60-80k selon l'offre)", "Necessite de developper des competences sales", "Stress lie au quota"],
+            "timeline": "2-3 ans pour monter en puissance, puis potentiel 140k+",
+            "risk": "Moyen a eleve",
+            "recommendation_pct": 25,
+            "current_opportunities": path_b["count"],
+            "avg_score": path_b["avg_score"],
+        },
+        "hybrid_strategy": {
+            "recommended": True,
+            "steps": [
+                "Tester le Path B pendant 1 an (Sales Engineer chez une scale-up)",
+                "Annee 1 : 85-105k€, apprentissage du sales, reseau revenue",
+                "Apres 1 an : si tu aimes le sales, continuer (potentiel 140k+) ; sinon, pivoter vers le Path A (90k+)",
+            ],
+            "why_safe": [
+                "Tu ne perds pas tes competences produit (profil rare)",
+                "Tu apprends un nouveau domaine (utile pour un founder)",
+                "Revenu correct des l'annee 1 dans les deux cas",
+                "Le potentiel founder reste ouvert, quel que soit le path",
+            ],
+        },
+        "decision_prompt": "Securite + trajectoire claire -> Path A. Envie d'explorer + tester le sales -> "
+                            "Path B pendant 1 an, puis decider. Maximiser le gain (risque) -> Path B a fond.",
+    })
 
 
 def _start_scrape_task():

@@ -149,8 +149,34 @@ SEARCH_CRITERIA = {
 }
 
 SEARCH_KEYWORDS = [
+    # Path A - Product / AMOA
     "Product Owner", "AMOA", "Programme Manager", "Agile", "Transformation",
+    # Path B - Sales Engineer / Solutions Architect (exploration path, see
+    # scorer_paths.py - searched with equal priority to Path A, never
+    # deprioritized, per the dual-path brief).
+    "Sales Engineer", "Solutions Architect", "Solutions Engineer",
+    "Technical Account Manager",
 ]
+
+# ---------------------------------------------------------------------------
+# Dual career path exploration (V3): Path A = Product/AMOA (secure, founder
+# potential), Path B = Sales Engineer/Solutions Architect (higher ceiling,
+# variable comp, revenue-side learning). See scorer_paths.py for the scoring
+# rubric and analysis_generator.py for the advantages/disadvantages/advice
+# generated from these company tiers.
+# ---------------------------------------------------------------------------
+PATH_B_TARGET_COMPANIES = {
+    # High-growth SaaS - the best "sales engineering bootcamp" companies.
+    "tier1_high_growth_saas": [
+        "stripe", "figma", "linear", "retool", "clerk", "framer",
+    ],
+    # Scaling SaaS Amine already has visibility into via the French market.
+    "tier2_scaling_saas": ["qonto", "swile", "alan", "wise"],
+    # Enterprise SaaS - large, more process-heavy sales orgs.
+    "tier3_enterprise_saas": [
+        "salesforce", "hubspot", "atlassian", "notion", "monday", "monday.com",
+    ],
+}
 
 # Maps each sector filter checkbox to the keywords it should match against
 # (sector + title + description). Real postings (e.g. France Travail's

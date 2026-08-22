@@ -1,6 +1,6 @@
 (() => {
   const PAGE_SIZE = 10;
-  let state = { page: 1, total: 0, jobs: [] };
+  let state = { page: 1, total: 0, jobs: [], path: "" };
 
   const feedEl = document.getElementById("jobs-feed");
   const emptyEl = document.getElementById("jobs-empty");
@@ -73,6 +73,19 @@
     return `<span class="company-avatar">${initial}</span>`;
   }
 
+  function pathScoreRow(job) {
+    const a = Math.round(job.path_a_score || 0);
+    const b = Math.round(job.path_b_score || 0);
+    const primary = job.primary_path;
+    return `
+      <div class="path-score-row">
+        <span class="path-score-chip ${primary === "A" ? "is-lead" : ""}">Path A <span class="path-score-value tnum">${a}</span></span>
+        <span class="path-score-chip ${primary === "B" ? "is-lead" : ""}">Path B <span class="path-score-value tnum">${b}</span></span>
+        ${primary === "both" ? `<span class="path-score-chip path-badge-cross">Cross-fit</span>` : ""}
+      </div>
+    `;
+  }
+
   function jobCard(job) {
     const tier = scoreTier(job.score);
     const isApplied = job.status !== "new";
@@ -96,6 +109,7 @@
               <span class="badge badge-sector">${relativeDate(job.date_found)}</span>
               ${isApplied ? `<span class="status-pill status-${job.status}">${STATUS_LABELS[job.status] || job.status}</span>` : ""}
             </div>
+            ${pathScoreRow(job)}
           </div>
           <div>
             ${scoreRing(job.score, tier)}
@@ -168,6 +182,7 @@
       min_salary: f.min_salary,
       score: f.score,
       status: f.status,
+      path: state.path || undefined,
       limit: PAGE_SIZE,
       offset: (state.page - 1) * PAGE_SIZE,
     };
@@ -269,6 +284,8 @@
           <div>Bonus : <strong class="tnum">${job.score_bonus}</strong>/8</div>
         </div>
       </div>
+      <div id="decision-widget-slot">Chargement de l'analyse dual-path…</div>
+
       <div class="job-card-actions" style="margin-top:20px;">
         <button class="btn btn-primary" data-action="generate" data-id="${job.id}">${ICONS.sparkle} Générer CV &amp; LM</button>
       </div>
@@ -301,10 +318,56 @@
     `;
     modal.classList.add("is-open");
     document.getElementById("modal-close").focus();
+    renderDecisionWidget(job.id);
   }
 
   function closeModal() {
     document.getElementById("job-modal").classList.remove("is-open");
+  }
+
+  function analysisList(items, cssClass) {
+    return `<ul class="${cssClass}">${(items || []).map((i) => `<li>${i}</li>`).join("")}</ul>`;
+  }
+
+  async function renderDecisionWidget(jobId) {
+    const slot = document.getElementById("decision-widget-slot");
+    if (!slot) return; // modal was closed/replaced before this resolved
+    try {
+      const data = await Api.getJobScores(jobId);
+      const { path_a, path_b, recommendation } = data;
+      const leadPath = path_a.score >= path_b.score ? "Path A (Product/AMOA)" : "Path B (Sales Engineer)";
+
+      slot.outerHTML = `
+        <div class="decision-widget" id="decision-widget-slot">
+          <div class="section-label">Should I apply? — Decision helper</div>
+          <div class="decision-widget-row"><span>Path A (Product/AMOA)</span><strong class="tnum">${path_a.score}/100</strong></div>
+          <div class="decision-widget-row"><span>Path B (Sales Engineer)</span><strong class="tnum">${path_b.score}/100</strong></div>
+          <div class="decision-widget-row"><span>Recommandé pour</span><strong>${leadPath}</strong></div>
+          <div class="decision-verdict">${ICONS.check} ${recommendation}</div>
+        </div>
+
+        <div class="path-analysis-grid">
+          <div class="path-analysis-card">
+            <h4>Path A · Product/AMOA</h4>
+            <div class="section-label">Avantages</div>
+            ${analysisList(path_a.advantages, "advantages")}
+            <div class="section-label">Inconvénients</div>
+            ${analysisList(path_a.disadvantages, "disadvantages")}
+            <div class="advice">${path_a.advice || ""}</div>
+          </div>
+          <div class="path-analysis-card">
+            <h4>Path B · Sales Engineer</h4>
+            <div class="section-label">Avantages</div>
+            ${analysisList(path_b.advantages, "advantages")}
+            <div class="section-label">Inconvénients</div>
+            ${analysisList(path_b.disadvantages, "disadvantages")}
+            <div class="advice">${path_b.advice || ""}</div>
+          </div>
+        </div>
+      `;
+    } catch (e) {
+      slot.textContent = "Analyse dual-path indisponible.";
+    }
   }
 
   function barRow(label, value, maxValue, valueLabel) {
@@ -360,6 +423,94 @@
       document.getElementById("modal-content").innerHTML = renderInsightsHtml(data);
     } catch (e) {
       document.getElementById("modal-content").innerHTML = `<p>Erreur de chargement des tendances : ${e.message}</p>`;
+    }
+  }
+
+  function starRating(pct) {
+    const filled = Math.max(1, Math.round(pct / 20));
+    return "★".repeat(filled) + "☆".repeat(5 - filled);
+  }
+
+  async function openComparison() {
+    const modal = document.getElementById("job-modal");
+    document.getElementById("modal-content").innerHTML = `<p>Chargement de la comparaison…</p>`;
+    modal.classList.add("is-open");
+    try {
+      const s = await Api.getPathStats();
+      const fp = s.financial_projection;
+      document.getElementById("modal-content").innerHTML = `
+        <h2 style="font-size:20px; font-weight:700; margin:0 0 4px; color:var(--color-text-primary);">Career Path Comparison</h2>
+        <p style="font-size:12px; color:var(--color-text-tertiary); margin:0 0 20px;">Path A (Product/AMOA) vs Path B (Sales Engineer) — ${s.cross_fit_count} offre(s) cross-fit</p>
+        <div class="comparison-grid">
+          <div class="comparison-card">
+            <div class="section-label">Path A · Product/AMOA</div>
+            <div class="n tnum">${s.path_a.count}</div>
+            <div style="font-size:12px; color:var(--color-text-tertiary);">opportunités (score &gt; 50)</div>
+            <table class="comparison-table">
+              <tr><td>Score moyen</td><td>${s.path_a.avg_score}/100</td></tr>
+              <tr><td>Salaire moyen</td><td>${s.path_a.avg_salary ? Math.round(s.path_a.avg_salary / 1000) + "k€" : "-"}</td></tr>
+              <tr><td>Projection an 1</td><td>${fp.path_a.year_1}</td></tr>
+              <tr><td>Projection an 3</td><td>${fp.path_a.year_3}</td></tr>
+            </table>
+          </div>
+          <div class="comparison-card">
+            <div class="section-label">Path B · Sales Engineer</div>
+            <div class="n tnum">${s.path_b.count}</div>
+            <div style="font-size:12px; color:var(--color-text-tertiary);">opportunités (score &gt; 50)</div>
+            <table class="comparison-table">
+              <tr><td>Score moyen</td><td>${s.path_b.avg_score}/100</td></tr>
+              <tr><td>Salaire moyen</td><td>${s.path_b.avg_salary ? Math.round(s.path_b.avg_salary / 1000) + "k€" : "-"}</td></tr>
+              <tr><td>Projection an 1</td><td>${fp.path_b.year_1}</td></tr>
+              <tr><td>Projection an 3</td><td>${fp.path_b.year_3}</td></tr>
+            </table>
+          </div>
+        </div>
+        <p style="font-size:13px; color:var(--color-text-secondary); margin-top:16px;">
+          ${fp.path_a.profile} (Path A) vs ${fp.path_b.profile} (Path B).
+        </p>
+      `;
+    } catch (e) {
+      document.getElementById("modal-content").innerHTML = `<p>Erreur de chargement : ${e.message}</p>`;
+    }
+  }
+
+  function advisorPathCard(path) {
+    return `
+      <div class="advisor-path-card">
+        <h4><span>${path.label}</span><span class="advisor-stars">${starRating(path.recommendation_pct)}</span></h4>
+        <div class="section-label">Avantages</div>
+        ${analysisList(path.pros, "advantages")}
+        <div class="section-label">Inconvénients</div>
+        ${analysisList(path.cons, "disadvantages")}
+        <div class="advisor-meta">
+          Timeline : ${path.timeline} · Risque : ${path.risk} · Recommandé à ${path.recommendation_pct}%<br>
+          ${path.current_opportunities} offre(s) actuellement, score moyen ${path.avg_score}/100
+        </div>
+      </div>
+    `;
+  }
+
+  async function openAdvisor() {
+    const modal = document.getElementById("job-modal");
+    document.getElementById("modal-content").innerHTML = `<p>Chargement du conseiller carrière…</p>`;
+    modal.classList.add("is-open");
+    try {
+      const advice = await Api.getCareerAdvice();
+      document.getElementById("modal-content").innerHTML = `
+        <h2 style="font-size:20px; font-weight:700; margin:0 0 8px; color:var(--color-text-primary);">Career Advisor</h2>
+        <p style="font-size:13px; color:var(--color-text-secondary); margin:0 0 20px;">${advice.current_thinking}</p>
+        ${advisorPathCard(advice.path_a)}
+        ${advisorPathCard(advice.path_b)}
+        <div class="advisor-path-card" style="background:var(--color-primary-subtle); border-color:var(--color-primary);">
+          <h4><span>Hybrid strategy${advice.hybrid_strategy.recommended ? " (recommandée)" : ""}</span></h4>
+          ${analysisList(advice.hybrid_strategy.steps, "advantages")}
+          <div class="section-label">Pourquoi c'est sûr</div>
+          ${analysisList(advice.hybrid_strategy.why_safe, "advantages")}
+        </div>
+        <div class="decision-verdict" style="display:block;">${advice.decision_prompt}</div>
+      `;
+    } catch (e) {
+      document.getElementById("modal-content").innerHTML = `<p>Erreur de chargement : ${e.message}</p>`;
     }
   }
 
@@ -473,6 +624,21 @@
   function bindEvents() {
     document.getElementById("btn-refresh").addEventListener("click", handleRefresh);
     document.getElementById("btn-insights").addEventListener("click", openInsights);
+    document.getElementById("btn-comparison").addEventListener("click", openComparison);
+    document.getElementById("btn-advisor").addEventListener("click", openAdvisor);
+    document.querySelectorAll(".path-tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".path-tab").forEach((t) => {
+          t.classList.remove("is-active");
+          t.setAttribute("aria-selected", "false");
+        });
+        tab.classList.add("is-active");
+        tab.setAttribute("aria-selected", "true");
+        state.path = tab.dataset.path;
+        state.page = 1;
+        loadJobs();
+      });
+    });
     document.getElementById("card-top-matches").addEventListener("click", () => {
       document.getElementById("filter-score").value = "top";
       state.page = 1;

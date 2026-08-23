@@ -128,6 +128,27 @@ def reconcile_tracking():
         logger.info("Reconciled tracking state for %d job(s) from Supabase", applied)
 
 
+def reconcile_veille():
+    """Restores the market veille from Supabase after a redeploy wiped the
+    local ephemeral SQLite copy - same durability pattern as
+    reconcile_tracking(), but for the single veille record. A no-op if the
+    local copy is already present (nothing was wiped) or Supabase has
+    nothing stored (never seeded, or Supabase unconfigured)."""
+    if db.get_veille():
+        return
+    remote = tracking_store.get_veille()
+    if not remote:
+        return
+    fields = {
+        k: remote.get(k)
+        for k in ("target_min", "target_max", "summary", "grille_json", "targets_json", "sources_json")
+        if remote.get(k) is not None
+    }
+    if fields:
+        db.save_veille(**fields)
+        logger.info("Restored market veille from Supabase after redeploy")
+
+
 def scrape_and_score(progress_cb=None):
     """Runs every scraper, scores and stores the results. Returns
     (inserted_count, run_log)."""
@@ -481,6 +502,7 @@ def api_get_veille():
     notes, sources) - not the individual postings it finds, which live in
     the jobs table as usual. Refreshed periodically by the veille routine
     via POST below, or manually."""
+    reconcile_veille()
     v = db.get_veille()
     if not v:
         return jsonify({"exists": False})
@@ -515,6 +537,7 @@ def api_save_veille():
     if not fields:
         return jsonify({"error": "empty_payload"}), 400
     db.save_veille(**fields)
+    tracking_store.upsert_veille(fields)
     return jsonify({"success": True})
 
 
@@ -626,6 +649,7 @@ create_app()
 # background scheduler / boot-time refresh.
 if not DEBUG or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
     start_scheduler()
+    reconcile_veille()
     if db.count_jobs() == 0:
         # Storage is ephemeral on hosts like Render's free tier: every
         # redeploy/restart wipes the local cache. Kick off a real scrape in

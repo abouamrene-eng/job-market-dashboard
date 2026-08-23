@@ -121,3 +121,51 @@ def upsert_tracking(job_url: str, status=None, date_applied=None, notes=None):
         resp.raise_for_status()
     except requests.RequestException as e:
         logger.error("Supabase: failed to persist tracking for %s: %s", job_url, e)
+
+
+def get_veille():
+    """Returns the durably-stored market veille row (dict) or None if
+    unconfigured, absent, or unreachable - same durability gap as job
+    tracking: the local SQLite copy is wiped on every redeploy, so this is
+    what survives. See reconcile_veille() in app.py for how it's restored."""
+    if not is_configured():
+        return None
+    url, key = _config()
+    try:
+        resp = requests.get(
+            f"{url}/rest/v1/market_veille",
+            headers=_headers(key),
+            params={"select": "*", "id": "eq.1"},
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        return rows[0] if rows else None
+    except requests.RequestException as e:
+        logger.error("Supabase: failed to fetch veille: %s", e)
+        return None
+    except ValueError as e:
+        logger.error("Supabase: invalid veille response: %s", e)
+        return None
+
+
+def upsert_veille(fields: dict):
+    """Writes through a market veille update. Best-effort, mirrors
+    upsert_tracking's failure handling. `fields` uses the same keys as
+    database.save_veille (target_min/target_max/summary/grille_json/
+    targets_json/sources_json)."""
+    if not is_configured() or not fields:
+        return
+    url, key = _config()
+    payload = {"id": 1, **fields}
+    try:
+        resp = requests.post(
+            f"{url}/rest/v1/market_veille",
+            headers={**_headers(key), "Prefer": "resolution=merge-duplicates,return=minimal"},
+            params={"on_conflict": "id"},
+            json=[payload],
+            timeout=TIMEOUT,
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.error("Supabase: failed to persist veille: %s", e)

@@ -105,6 +105,23 @@ tant que le processus tourne - il repart a zero au prochain redeploiement
 (comportement d'avant cette fonctionnalite, logue une fois, jamais une
 erreur).
 
+La meme table Supabase (memes identifiants) mirrore aussi la synthese de
+veille marche (section "Veille marche" du dashboard) - sans quoi elle
+serait, elle aussi, effacee a chaque redeploiement. Executez en plus dans
+l'editeur SQL Supabase :
+```sql
+create table market_veille (
+  id integer primary key,
+  target_min integer,
+  target_max integer,
+  summary text,
+  grille_json text,
+  targets_json text,
+  sources_json text,
+  updated_at timestamptz not null default now()
+);
+```
+
 ## A savoir sur le scraping
 
 **Source principale : l'API France Travail.** C'est la source fiable et a

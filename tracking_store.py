@@ -25,6 +25,11 @@ Table expected (create once via the Supabase SQL editor):
       updated_at timestamptz not null default now()
     );
 
+The same project also mirrors the market_veille table (get_veille/
+upsert_veille below) - the market research synthesis, not individual job
+postings, which would otherwise be wiped by every redeploy just like
+job_tracking would without this module.
+
 Configured via SUPABASE_URL and SUPABASE_SERVICE_KEY environment
 variables. The service_role key is required (not the anon key) because
 this table has no public-facing use and should not be reachable except

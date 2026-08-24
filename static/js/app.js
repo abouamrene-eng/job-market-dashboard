@@ -189,8 +189,7 @@
     if (s.connected) {
       return `<div>${s.name} ✅ mis à jour ${relativeUpdate(s.last_updated)} — ${s.jobs_found || 0} offre(s)</div>`;
     }
-    const icon = s.name === "Google Jobs" ? "⏳" : "❌";
-    return `<div>${s.name} ${icon} ${s.note || "Non connecté"}</div>`;
+    return `<div>${s.name} ❌ ${s.note || "Non connecté"}</div>`;
   }
 
   async function renderEmptyState() {

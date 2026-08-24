@@ -124,40 +124,52 @@ create table market_veille (
 
 ## A savoir sur le scraping
 
-**Source principale : l'API France Travail.** C'est la source fiable et a
-fort volume - une API officielle, gratuite et conforme aux CGU (contrairement
-au scraping), qui agrege de vraies offres du marche francais. Pour l'activer :
+**Sources principales : deux API officielles, executees automatiquement
+chaque jour.** Ce sont de vraies API (gratuites, conformes aux CGU), pas du
+scraping - la difference compte : un site web peut bloquer un robot qui lit
+sa page HTML en douce, mais pas un appel a une API qu'il expose lui-meme
+pour ca.
 
-1. Creez un compte gratuit sur https://francetravail.io/inscription
-2. Dans "Mes applications" -> "Creer une application", cochez l'API
-   **"Offres d'emploi v2"**
-3. Recuperez le `client_id` et le `client_secret` generes, et definissez-les
-   comme variables d'environnement :
-   ```bash
-   export FRANCE_TRAVAIL_CLIENT_ID="..."
-   export FRANCE_TRAVAIL_CLIENT_SECRET="..."
-   ```
-   Sur Render : Dashboard -> votre service -> Environment -> Add Environment
-   Variable (jamais dans le code ni commite dans git).
+1. **France Travail** (ex Pole Emploi) - la source a plus fort volume.
+   - Creez un compte gratuit sur https://francetravail.io/inscription
+   - Dans "Mes applications" -> "Creer une application", cochez l'API
+     **"Offres d'emploi v2"**
+   - Recuperez le `client_id` et le `client_secret` generes :
+     ```bash
+     export FRANCE_TRAVAIL_CLIENT_ID="..."
+     export FRANCE_TRAVAIL_CLIENT_SECRET="..."
+     ```
 
-Sans ces identifiants, cette source est simplement ignoree (logue une fois,
-pas une erreur) et le dashboard retombe sur les sources secondaires.
+2. **Adzuna** - un agregateur international, complementaire (couvre aussi
+   des offres et sites que France Travail ne remonte pas).
+   - Creez un compte gratuit sur https://developer.adzuna.com/ (1000
+     appels/mois sur le tier gratuit, largement suffisant pour un scrape
+     quotidien)
+   - Recuperez l'`app_id` et l'`app_key` generes :
+     ```bash
+     export ADZUNA_APP_ID="..."
+     export ADZUNA_APP_KEY="..."
+     ```
 
-**Sources secondaires : scraping best-effort.** LinkedIn, Indeed, Glassdoor
-et Welcome to la Jungle bloquent activement le scraping automatise et leurs
-CGU le restreignent. `scraper.py` essaie tout de meme des requetes
-best-effort (BeautifulSoup4, avec retry/backoff) sur Indeed, Glassdoor,
-Consulting.fr, RegionsJob, StepStone, Talent.com et Jooble, avec des
-scrapers LinkedIn/WTTJ laisses en stub (a completer avec une session
-Selenium authentifiee si besoin). Il est normal que la plupart de ces
-sources secondaires renvoient 0 resultat la plupart du temps.
+Sur Render : Dashboard -> votre service -> Environment -> Add Environment
+Variable (jamais dans le code ni commite dans git). Sans ces identifiants,
+la source correspondante est simplement ignoree (loguee une fois, pas une
+erreur) - le dashboard continue de fonctionner avec les sources restantes.
 
-**Repli demo.** Quand ni France Travail ni le scraping secondaire ne
-remontent assez de resultats, le dashboard complete le flux avec des offres
-de demonstration realistes (`generate_seed_jobs`) dont le lien "Voir
-l'offre" pointe vers une recherche Google reelle - pour que le scoring, la
-generation de CV/LM et le tracking restent utilisables meme sans aucune
-source live configuree.
+**Sources secondaires : scraping best-effort, desactivees par defaut.**
+LinkedIn, Indeed, Glassdoor et Welcome to the Jungle bloquent activement le
+scraping automatise et leurs CGU le restreignent. `scraper.py` contient des
+tentatives best-effort (BeautifulSoup4, avec retry/backoff) pour Indeed,
+Glassdoor, Consulting.fr, RegionsJob, StepStone, Talent.com et Jooble, plus
+des stubs LinkedIn/WTTJ - mais elles ne tournent jamais automatiquement
+(`run_daily_scrape(include_secondary=True)` n'est appele nulle part) : elles
+avaient sature le CPU du plan gratuit Render en tournant en parallele pour
+un gain quasi nul, la plupart des requetes etant bloquees. Conservees dans
+le code au cas ou un futur setup (proxy, Selenium) les rendrait viables.
+
+**Aucun repli demo.** Sans aucune source configuree, le Flux reste
+honnetement vide plutot que rempli d'offres fictives - voir le widget de
+statut par source affiche dans l'etat vide du dashboard.
 
 ## Fonctionnalites
 

@@ -65,8 +65,8 @@ BACKOFF_BASE = 2  # seconds: 2, (4 on a 3rd attempt if MAX_RETRIES is raised)
 PARALLEL_SOURCES = 4
 
 ALLOWED_SOURCES = {
-    "France Travail", "Indeed", "LinkedIn", "WTTJ", "Glassdoor", "Consulting.fr",
-    "RegionsJob", "StepStone", "Talent.com", "Jooble",
+    "France Travail", "Adzuna", "Indeed", "LinkedIn", "WTTJ", "Glassdoor",
+    "Consulting.fr", "RegionsJob", "StepStone", "Talent.com", "Jooble",
 }
 
 
@@ -352,6 +352,101 @@ def scrape_france_travail(keyword="Product Owner", limit=None):
                 logger.warning("France Travail: failed to parse one offer: %s", e)
 
         if len(results) < FT_PAGE_SIZE:
+            break  # last page reached
+        time.sleep(0.3)
+
+    return jobs
+
+
+ADZUNA_SEARCH_URL = "https://api.adzuna.com/v1/api/jobs/fr/search/{page}"
+ADZUNA_PAGE_SIZE = 50
+# Free tier is 1000 calls/month. 5 keywords x 2 pages = up to 10 calls per
+# scrape run (fewer in practice - a page short of ADZUNA_PAGE_SIZE stops
+# early); the daily cron alone stays comfortably under budget with headroom
+# for manual "Actualiser" clicks.
+ADZUNA_MAX_PAGES = 2
+
+_adzuna_warned_missing_credentials = False
+
+
+def _strip_html(text):
+    return re.sub(r"<[^>]+>", "", text or "")
+
+
+def scrape_adzuna(keyword="Product Owner", limit=None):
+    """Search live postings via Adzuna's official free API - a second
+    reliable, ToS-compliant aggregator alongside France Travail (overlaps
+    with it somewhat, but also pulls from company career pages and boards
+    France Travail doesn't cover). Needs a free app_id/app_key from
+    https://developer.adzuna.com/ set as ADZUNA_APP_ID / ADZUNA_APP_KEY.
+    Without them it's skipped (logged once), not an error."""
+    global _adzuna_warned_missing_credentials
+    app_id = os.environ.get("ADZUNA_APP_ID")
+    app_key = os.environ.get("ADZUNA_APP_KEY")
+    if not app_id or not app_key:
+        if not _adzuna_warned_missing_credentials:
+            logger.info(
+                "Adzuna: ADZUNA_APP_ID/APP_KEY not set - skipping this source "
+                "(get free credentials at developer.adzuna.com)"
+            )
+            _adzuna_warned_missing_credentials = True
+        return []
+
+    jobs = []
+    for page in range(1, ADZUNA_MAX_PAGES + 1):
+        try:
+            resp = requests.get(
+                ADZUNA_SEARCH_URL.format(page=page),
+                params={
+                    "app_id": app_id,
+                    "app_key": app_key,
+                    "results_per_page": ADZUNA_PAGE_SIZE,
+                    "what": keyword,
+                    "where": "Ile-de-France",
+                    "content-type": "application/json",
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.RequestException as e:
+            logger.error("Adzuna: request failed for %r page %d: %s", keyword, page, e)
+            break
+
+        if resp.status_code != 200:
+            logger.warning("Adzuna: status %d for %r page %d", resp.status_code, keyword, page)
+            break
+
+        try:
+            results = resp.json().get("results", [])
+        except ValueError:
+            logger.error("Adzuna: invalid JSON for %r page %d", keyword, page)
+            break
+
+        for offer in results:
+            try:
+                company = (offer.get("company") or {}).get("display_name") or "Entreprise non precisee"
+                location = (offer.get("location") or {}).get("display_name") or "France"
+                salary_min = offer.get("salary_min")
+                salary_max = offer.get("salary_max")
+                jobs.append({
+                    "id": str(uuid.uuid4()),
+                    "date_found": date.today().isoformat(),
+                    "job_title": _strip_html(offer.get("title", "")),
+                    "company": company,
+                    "location": location,
+                    "sector": (offer.get("category") or {}).get("label") or "",
+                    # Adzuna sometimes returns a modeled salary (identical
+                    # min/max, not employer-stated) - still a real signal,
+                    # just not necessarily sourced from the ad text.
+                    "salary_min": round(salary_min) if salary_min else None,
+                    "salary_max": round(salary_max) if salary_max else None,
+                    "job_url": offer.get("redirect_url", ""),
+                    "job_description": _strip_html(offer.get("description", "")),
+                    "source": "Adzuna",
+                })
+            except Exception as e:
+                logger.warning("Adzuna: failed to parse one offer: %s", e)
+
+        if len(results) < ADZUNA_PAGE_SIZE:
             break  # last page reached
         time.sleep(0.3)
 
@@ -653,6 +748,7 @@ def scrape_wttj(keyword="Product Owner", limit=15):
 # Selenium setup makes them worth trying again.
 PRIMARY_SOURCES = [
     scrape_france_travail,
+    scrape_adzuna,
 ]
 SECONDARY_SOURCES = [
     scrape_indeed,

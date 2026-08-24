@@ -561,16 +561,24 @@ def api_data_sources():
     france_travail_configured = bool(
         os.environ.get("FRANCE_TRAVAIL_CLIENT_ID") and os.environ.get("FRANCE_TRAVAIL_CLIENT_SECRET")
     )
+    adzuna_configured = bool(
+        os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY")
+    )
     return jsonify({
         "sources": [
             {
                 "name": "France Travail",
                 "connected": france_travail_configured,
                 "last_updated": LAST_SCRAPE_AT.get("france_travail"),
-                "jobs_found": db.count_jobs(),
+                "jobs_found": db.count_jobs(source="France Travail"),
             },
-            {"name": "LinkedIn", "connected": False, "note": "Non connecte - c'est la que sont beaucoup d'offres reelles."},
-            {"name": "Google Jobs", "connected": False, "note": "Bientot disponible."},
+            {
+                "name": "Adzuna",
+                "connected": adzuna_configured,
+                "last_updated": LAST_SCRAPE_AT.get("adzuna"),
+                "jobs_found": db.count_jobs(source="Adzuna"),
+            },
+            {"name": "LinkedIn", "connected": False, "note": "Non connecte - bloque le scraping automatise."},
         ],
     })
 

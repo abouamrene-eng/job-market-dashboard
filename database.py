@@ -166,12 +166,16 @@ def get_jobs(
     only_aeronautique=False,
     only_enac=False,
     date_found=None,
+    source=None,
     limit=50,
     offset=0,
 ):
     query = "SELECT * FROM jobs WHERE 1=1"
     params = []
 
+    if source:
+        query += " AND source = ?"
+        params.append(source)
     if date_found:
         query += " AND date_found = ?"
         params.append(date_found)

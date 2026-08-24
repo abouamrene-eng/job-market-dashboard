@@ -124,7 +124,7 @@ create table market_veille (
 
 ## A savoir sur le scraping
 
-**Sources principales : deux API officielles, executees automatiquement
+**Sources principales : trois API officielles, executees automatiquement
 chaque jour.** Ce sont de vraies API (gratuites, conformes aux CGU), pas du
 scraping - la difference compte : un site web peut bloquer un robot qui lit
 sa page HTML en douce, mais pas un appel a une API qu'il expose lui-meme
@@ -151,6 +151,17 @@ pour ca.
      export ADZUNA_APP_KEY="..."
      ```
 
+3. **Jooble** - un second agregateur, complementaire aux deux premiers.
+   Donnees plus pauvres (descriptions tronquees, salaire en texte libre
+   souvent absent) mais gratuit et legitime.
+   - Demandez une cle gratuite sur https://jooble.org/api/about (formulaire
+     court - nom, poste, email, site web - la cle arrive par email, pas
+     instantanee contrairement a Adzuna)
+   - Definissez-la :
+     ```bash
+     export JOOBLE_API_KEY="..."
+     ```
+
 Sur Render : Dashboard -> votre service -> Environment -> Add Environment
 Variable (jamais dans le code ni commite dans git). Sans ces identifiants,
 la source correspondante est simplement ignoree (loguee une fois, pas une
@@ -160,8 +171,8 @@ erreur) - le dashboard continue de fonctionner avec les sources restantes.
 LinkedIn, Indeed, Glassdoor et Welcome to the Jungle bloquent activement le
 scraping automatise et leurs CGU le restreignent. `scraper.py` contient des
 tentatives best-effort (BeautifulSoup4, avec retry/backoff) pour Indeed,
-Glassdoor, Consulting.fr, RegionsJob, StepStone, Talent.com et Jooble, plus
-des stubs LinkedIn/WTTJ - mais elles ne tournent jamais automatiquement
+Glassdoor, Consulting.fr, RegionsJob et StepStone, Talent.com plus des
+stubs LinkedIn/WTTJ - mais elles ne tournent jamais automatiquement
 (`run_daily_scrape(include_secondary=True)` n'est appele nulle part) : elles
 avaient sature le CPU du plan gratuit Render en tournant en parallele pour
 un gain quasi nul, la plupart des requetes etant bloquees. Conservees dans

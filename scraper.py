@@ -681,39 +681,105 @@ def scrape_talent(keyword="Product Owner", limit=10):
     return jobs
 
 
-def scrape_jooble(keyword="Product Owner", limit=10):
-    """Best-effort scrape of Jooble (job aggregator) search results."""
+JOOBLE_SEARCH_URL = "https://jooble.org/api/{key}"
+JOOBLE_PAGE_SIZE = 20  # Jooble's own fixed page size, not configurable
+JOOBLE_MAX_PAGES = 2
+
+_jooble_warned_missing_credentials = False
+
+
+def _parse_generic_salary(text):
+    """Best-effort salary parsing for aggregators (Jooble) that don't
+    structure salary the way France Travail's API does - just free text
+    or absent. Extracts up to two numbers and treats them as annual EUR
+    figures; drops anything outside a plausible French salary range (same
+    absurdity guard as _parse_ft_salary) rather than store an implausible
+    figure."""
+    if not text:
+        return None, None
+    numbers = [float(n.replace(" ", "").replace(",", "."))
+               for n in re.findall(r"\d[\d\s]*(?:[.,]\d+)?", text)]
+    numbers = [n for n in numbers if n > 0]
+    if not numbers:
+        return None, None
+    if len(numbers) == 1:
+        lo = hi = round(numbers[0])
+    else:
+        lo, hi = sorted(numbers[:2])
+        lo, hi = round(lo), round(hi)
+    if hi > 300_000 or lo < 10_000:
+        return None, None
+    return lo, hi
+
+
+def scrape_jooble(keyword="Product Owner", limit=None):
+    """Search live postings via Jooble's official free API - a third
+    reliable, ToS-compliant aggregator alongside France Travail and
+    Adzuna. Needs a free API key requested at https://jooble.org/api/about
+    (delivered by email, not instant) set as JOOBLE_API_KEY. Without it,
+    skipped (logged once), not an error.
+
+    Weaker data than France Travail/Adzuna: descriptions are truncated
+    snippets and salary is unstructured free text (often absent) - kept
+    anyway for the extra coverage, same "unknown isn't below-target"
+    philosophy as meets_candidate_criteria()."""
+    global _jooble_warned_missing_credentials
+    api_key = os.environ.get("JOOBLE_API_KEY")
+    if not api_key:
+        if not _jooble_warned_missing_credentials:
+            logger.info(
+                "Jooble: JOOBLE_API_KEY not set - skipping this source "
+                "(request a free key at jooble.org/api/about)"
+            )
+            _jooble_warned_missing_credentials = True
+        return []
+
     jobs = []
-    html = _request_with_retry("https://fr.jooble.org/SearchResult", params={"ukw": keyword, "rgns": "France"})
-    if not html:
-        return jobs
-    try:
-        soup = BeautifulSoup(html, "html.parser")
-        cards = soup.select(".vacancy")
-        for card in cards[:limit]:
+    for page in range(1, JOOBLE_MAX_PAGES + 1):
+        try:
+            resp = requests.post(
+                JOOBLE_SEARCH_URL.format(key=api_key),
+                json={"keywords": keyword, "location": "Ile-de-France", "page": str(page)},
+                headers={"Content-Type": "application/json"},
+                timeout=REQUEST_TIMEOUT,
+            )
+        except requests.RequestException as e:
+            logger.error("Jooble: request failed for %r page %d: %s", keyword, page, e)
+            break
+
+        if resp.status_code != 200:
+            logger.warning("Jooble: status %d for %r page %d", resp.status_code, keyword, page)
+            break
+
+        try:
+            results = resp.json().get("jobs", [])
+        except ValueError:
+            logger.error("Jooble: invalid JSON for %r page %d", keyword, page)
+            break
+
+        for offer in results:
             try:
-                title_el = card.find(["h2", "h3"])
-                company_el = card.select_one(".company")
-                link_el = card.find("a", href=True)
-                if not (title_el and link_el):
-                    continue
+                salary_min, salary_max = _parse_generic_salary(offer.get("salary"))
                 jobs.append({
                     "id": str(uuid.uuid4()),
                     "date_found": date.today().isoformat(),
-                    "job_title": title_el.get_text(strip=True),
-                    "company": company_el.get_text(strip=True) if company_el else "Jooble",
-                    "location": "France",
+                    "job_title": _strip_html(offer.get("title", "")),
+                    "company": offer.get("company") or "Entreprise non precisee",
+                    "location": offer.get("location") or "France",
                     "sector": "",
-                    "salary_min": None,
-                    "salary_max": None,
-                    "job_url": link_el["href"],
-                    "job_description": "",
+                    "salary_min": salary_min,
+                    "salary_max": salary_max,
+                    "job_url": offer.get("link", ""),
+                    "job_description": _strip_html(offer.get("snippet", "")),
                     "source": "Jooble",
                 })
             except Exception as e:
-                logger.warning("Jooble: failed to parse one card: %s", e)
-    except Exception as e:
-        logger.error("Jooble: parse error: %s", e)
+                logger.warning("Jooble: failed to parse one offer: %s", e)
+
+        if len(results) < JOOBLE_PAGE_SIZE:
+            break  # last page reached
+        time.sleep(0.3)
+
     return jobs
 
 
@@ -734,9 +800,11 @@ def scrape_wttj(keyword="Product Owner", limit=15):
     return []
 
 
-# PRIMARY_SOURCES run on every automatic/manual refresh: France Travail
-# is the one source that has ever actually returned results in extensive
-# testing (hundreds of real postings per run, in seconds).
+# PRIMARY_SOURCES run on every automatic/manual refresh: official, free,
+# ToS-compliant APIs rather than scraping - France Travail and Adzuna have
+# both actually returned results in extensive testing (hundreds of real
+# postings per run, in seconds); Jooble likewise via its own API (not the
+# HTML-scraping version this used to be).
 #
 # SECONDARY_SOURCES are opt-in only (run_daily_scrape(include_secondary=
 # True)) rather than part of the default rotation. Across every test run
@@ -749,6 +817,7 @@ def scrape_wttj(keyword="Product Owner", limit=15):
 PRIMARY_SOURCES = [
     scrape_france_travail,
     scrape_adzuna,
+    scrape_jooble,
 ]
 SECONDARY_SOURCES = [
     scrape_indeed,
@@ -757,7 +826,6 @@ SECONDARY_SOURCES = [
     scrape_regionsjob,
     scrape_stepstone,
     scrape_talent,
-    scrape_jooble,
     scrape_linkedin,
     scrape_wttj,
 ]

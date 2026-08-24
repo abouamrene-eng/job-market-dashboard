@@ -564,6 +564,7 @@ def api_data_sources():
     adzuna_configured = bool(
         os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY")
     )
+    jooble_configured = bool(os.environ.get("JOOBLE_API_KEY"))
     return jsonify({
         "sources": [
             {
@@ -577,6 +578,12 @@ def api_data_sources():
                 "connected": adzuna_configured,
                 "last_updated": LAST_SCRAPE_AT.get("adzuna"),
                 "jobs_found": db.count_jobs(source="Adzuna"),
+            },
+            {
+                "name": "Jooble",
+                "connected": jooble_configured,
+                "last_updated": LAST_SCRAPE_AT.get("jooble"),
+                "jobs_found": db.count_jobs(source="Jooble"),
             },
             {"name": "LinkedIn", "connected": False, "note": "Non connecte - bloque le scraping automatise."},
         ],

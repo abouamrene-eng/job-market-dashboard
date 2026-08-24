@@ -32,6 +32,24 @@ LOCATION_TOULOUSE = ["toulouse"]
 
 EQUITY_KEYWORDS = ["equity", "actions gratuites", "bspce", "stock-options", "stock options"]
 
+# ESN/staffing-firm postings routinely open with a boilerplate client-sector
+# list ("Secteurs : Automobile, Aeronautique, Spatial, Defense & Securite,
+# Ferroviaire, Telecommunications, Energie, ..."), enumerating a dozen-plus
+# industries the firm serves - a mention of "aeronautique" there says
+# nothing about the posting itself (a generic Scrum Master or Coach Agile
+# role, say), unlike a mention in the actual mission description. Detected
+# via co-occurrence with several of these unrelated industries; confirmed
+# against real Adzuna postings (see the scorer.py commit that added this -
+# 3/41 aero-flagged postings were this exact false-positive pattern, 0 real
+# aeronautique postings tripped it).
+GENERIC_SECTOR_LIST_KEYWORDS = [
+    "automobile", "ferroviaire", "telecommunications", "télécommunications",
+    "energie", "énergie", "naval", "chimie", "petrochimie", "pétrochimie",
+    "pharmaceutique", "biotechnologie", "banque", "assurance", "btp",
+    "spatial", "securite", "sécurité", "e-commerce", "machines",
+]
+GENERIC_SECTOR_LIST_THRESHOLD = 4
+
 
 def _text_blob(job: dict) -> str:
     return f"{job.get('job_title', '')} {job.get('job_description', '')}".lower()
@@ -44,11 +62,18 @@ def _tiered(blob: str, tiers: list) -> int:
     return 0
 
 
+def _looks_like_generic_sector_list(blob: str) -> bool:
+    hits = sum(1 for kw in GENERIC_SECTOR_LIST_KEYWORDS if kw in blob)
+    return hits >= GENERIC_SECTOR_LIST_THRESHOLD
+
+
 def detect_is_aeronautique(job: dict) -> bool:
     company = (job.get("company") or "").lower()
     if any(name in company for name in AERO_COMPANIES) or any(name in company for name in AERO_COMPANIES_OTHER):
         return True
     blob = f"{(job.get('sector') or '').lower()} {_text_blob(job)}"
+    if _looks_like_generic_sector_list(blob):
+        return False
     return any(kw in blob for kw in SECTOR_SCORES[0][0])
 
 
@@ -77,6 +102,11 @@ def score_role(job: dict) -> float:
 
 def score_sector(job: dict) -> float:
     blob = f"{(job.get('sector') or '').lower()} {_text_blob(job)}"
+    if _looks_like_generic_sector_list(blob):
+        # Skip the aeronautique tier specifically (the false-positive risk
+        # from a client-sector boilerplate list) - lower tiers still apply
+        # normally, e.g. "conseil" legitimately fits an ESN posting.
+        return _tiered(blob, SECTOR_SCORES[1:])
     return _tiered(blob, SECTOR_SCORES)
 
 
